@@ -3,6 +3,7 @@
 //   users.json      email → { id, email, salt, hash, created }
 //   sessions.json   sha256(token) → { userId, created, seen }
 //   saves/<id>.json { save, updated }
+//   pending/<email>.json  a save waiting for that email to sign up (see admin.mjs)
 import crypto from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { rename, writeFile } from 'node:fs/promises';
@@ -183,6 +184,9 @@ async function api(req, res, route) {
       const u = { id: crypto.randomUUID(), email, salt, hash: await hashPassword(password, salt), created: Date.now() };
       users.data[email] = u;
       await users.save();
+      // A save set aside for this email (admin.mjs import-save) becomes the account's game.
+      const pending = path.join(DATA_DIR, 'pending', `${encodeURIComponent(email)}.json`);
+      if (existsSync(pending)) await rename(pending, savePath(u.id));
       const token = newSession(u.id);
       return send(res, 200, { ok: true, email }, { 'Set-Cookie': sessionCookie(token, SESSION_DAYS * 86400) });
     }

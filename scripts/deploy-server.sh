@@ -18,7 +18,7 @@ mkdir -p $APP/server $APP/public $APP/data
 chown doner:doner $APP/data && chmod 700 $APP/data"
 
 rsync -az --delete -e "ssh -i $KEY" dist/ "$HOST:$APP/public/"
-rsync -az -e "ssh -i $KEY" server/index.mjs "$HOST:$APP/server/index.mjs"
+rsync -az -e "ssh -i $KEY" server/index.mjs server/admin.mjs "$HOST:$APP/server/"
 
 $SSH "set -e
 cat > /etc/systemd/system/doner-dukkani.service <<UNIT
