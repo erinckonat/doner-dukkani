@@ -79,6 +79,55 @@ export function makeDoner() {
   return g;
 }
 
+export function makeBurger() {
+  const g = new THREE.Group();
+  g.add(at(cyl(0.15, 0.14, 0.05, 10, '#D9A35B', false), 0, 0.025, 0));
+  g.add(at(cyl(0.16, 0.16, 0.035, 10, '#6A3319', false), 0, 0.068, 0));
+  const cheese = box(0.25, 0.012, 0.25, '#F2C230', false);
+  cheese.position.y = 0.09;
+  cheese.rotation.y = Math.PI / 4;
+  g.add(cheese);
+  g.add(at(cyl(0.165, 0.165, 0.014, 10, C.leaf, false), 0, 0.1, 0));
+  g.add(at(cyl(0.11, 0.155, 0.06, 10, '#D9A35B', false), 0, 0.137, 0));
+  g.add(at(cyl(0.02, 0.11, 0.02, 10, '#E3B574', false), 0, 0.176, 0));
+  return g;
+}
+
+export function makeFries() {
+  const g = new THREE.Group();
+  g.add(at(box(0.15, 0.12, 0.09, C.primary, false), 0, 0.06, 0));
+  const stick = geo('fry', () => new THREE.BoxGeometry(0.022, 0.1, 0.022));
+  for (let i = 0; i < 7; i++) {
+    const m = new THREE.Mesh(stick, mat('#F2C94C'));
+    m.position.set(-0.055 + (i % 4) * 0.037, 0.14 + (i % 3) * 0.012, i < 4 ? -0.018 : 0.018);
+    m.rotation.z = (i % 2 ? 1 : -1) * 0.12;
+    g.add(m);
+  }
+  return g;
+}
+
+export function makeShake() {
+  const g = new THREE.Group();
+  g.add(at(cyl(0.075, 0.06, 0.19, 10, '#F4B6C2', false), 0, 0.095, 0));
+  g.add(at(cyl(0.077, 0.077, 0.03, 10, C.cream, false), 0, 0.12, 0));
+  g.add(at(cyl(0.02, 0.078, 0.04, 10, '#FBF6EC', false), 0, 0.21, 0));
+  const straw = cyl(0.01, 0.01, 0.14, 5, C.primary, false);
+  straw.position.set(0.02, 0.27, 0);
+  straw.rotation.z = -0.2;
+  g.add(straw);
+  return g;
+}
+
+/** One carried/served item of a product. */
+export function makeProduct(kind: 'doner' | 'burger' | 'fries' | 'shake') {
+  switch (kind) {
+    case 'doner': return makeDoner();
+    case 'burger': return makeBurger();
+    case 'fries': return makeFries();
+    case 'shake': return makeShake();
+  }
+}
+
 export function makeTrash() {
   const g = new THREE.Group();
   const paper = new THREE.Mesh(geo('trash', () => new THREE.IcosahedronGeometry(0.09, 0)), mat(C.trash));
@@ -147,8 +196,50 @@ export function drawDonerIcon(ctx: CanvasRenderingContext2D, cx: number, cy: num
   ctx.restore();
 }
 
+/** Small product glyphs for 2D canvases (order bubbles, signs). */
+export function drawProductIcon(ctx: CanvasRenderingContext2D, kind: 'doner' | 'burger' | 'fries' | 'shake', cx: number, cy: number, s: number) {
+  if (kind === 'doner') return drawDonerIcon(ctx, cx, cy, s);
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (kind === 'burger') {
+    ctx.fillStyle = '#D9A35B';
+    ctx.beginPath();
+    ctx.ellipse(0, -s * 0.2, s, s * 0.55, 0, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = C.leaf;
+    ctx.fillRect(-s * 1.02, -s * 0.22, s * 2.04, s * 0.18);
+    ctx.fillStyle = '#6A3319';
+    roundRect(ctx, -s, -s * 0.06, s * 2, s * 0.34, s * 0.15);
+    ctx.fill();
+    ctx.fillStyle = '#D9A35B';
+    roundRect(ctx, -s * 0.95, s * 0.3, s * 1.9, s * 0.32, s * 0.14);
+    ctx.fill();
+  } else if (kind === 'fries') {
+    ctx.fillStyle = '#F2C94C';
+    for (let i = 0; i < 5; i++) ctx.fillRect(-s * 0.6 + i * s * 0.26, -s * (0.95 - (i % 2) * 0.15), s * 0.18, s * 0.9);
+    ctx.fillStyle = C.primary;
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.75, -s * 0.15); ctx.lineTo(s * 0.75, -s * 0.15);
+    ctx.lineTo(s * 0.6, s * 0.85); ctx.lineTo(-s * 0.6, s * 0.85);
+    ctx.fill();
+  } else {
+    ctx.fillStyle = C.primary;
+    ctx.fillRect(s * 0.1, -s * 1.1, s * 0.14, s * 0.6);
+    ctx.fillStyle = '#FBF6EC';
+    ctx.beginPath();
+    ctx.ellipse(0, -s * 0.5, s * 0.6, s * 0.28, 0, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = '#F4B6C2';
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.6, -s * 0.5); ctx.lineTo(s * 0.6, -s * 0.5);
+    ctx.lineTo(s * 0.45, s * 0.85); ctx.lineTo(-s * 0.45, s * 0.85);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 /** Dashed floor ring marking where to stand, with a small glyph in the middle. */
-export function zoneDecal(kind: 'drop' | 'register') {
+export function zoneDecal(kind: 'drop' | 'register', product: 'doner' | 'burger' | 'fries' | 'shake' = 'doner') {
   const { tex } = canvasTexture(256, 256, (ctx) => {
     ctx.beginPath();
     ctx.arc(128, 128, 112, 0, Math.PI * 2);
@@ -160,7 +251,7 @@ export function zoneDecal(kind: 'drop' | 'register') {
     ctx.stroke();
     ctx.setLineDash([]);
     if (kind === 'drop') {
-      drawDonerIcon(ctx, 128, 112, 44);
+      drawProductIcon(ctx, product, 128, 112, 44);
       ctx.strokeStyle = C.dark;
       ctx.lineWidth = 10;
       ctx.lineCap = 'round';

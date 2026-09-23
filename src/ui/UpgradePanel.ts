@@ -1,4 +1,4 @@
-import { HIRES, HR_UPGRADES, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type UpgradeId } from '../config/balance';
+import { HR_UPGRADES, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type UpgradeId } from '../config/balance';
 import type { Game } from '../Game';
 import type { DeskKind } from '../stations/Props';
 import { fmtMoney } from './Hud';
@@ -67,7 +67,7 @@ export class UpgradePanel {
     const next = maxed ? '' : ` → <b>${this.valueText(id, lvl + 1)}</b>`;
     return `<li class="upg">
       <div class="upg-info">
-        <h3>${TR.upgrade[id].name}</h3>
+        <h3>${id === 'price' ? TR.priceName[this.g.shop.id] : TR.upgrade[id].name}</h3>
         <p>${this.valueText(id, lvl)}${next}</p>
         ${this.pips(lvl, d.max, `Seviye ${lvl}/${d.max}`)}
       </div>
@@ -78,7 +78,7 @@ export class UpgradePanel {
   private hireRow(h: HireDef) {
     const n = this.g.hireCount(h.id);
     const max = h.costs.length;
-    const locked = !!h.requires && !this.g.data.unlocked.includes(h.requires);
+    const locked = !!h.requires && !this.g.ss.unlocked.includes(h.requires);
     const full = n >= max;
     const cost = h.costs[n];
     const label = locked ? TR.needsWindow : full ? TR.hired : `${TR.hireBtn}<small>${fmtMoney(cost)}</small>`;
@@ -96,7 +96,7 @@ export class UpgradePanel {
   render() {
     const html = this.kind === 'office'
       ? OFFICE_UPGRADES.map((id) => this.upgradeRow(id)).join('')
-      : HIRES.map((h) => this.hireRow(h)).join('')
+      : this.g.shop.hires.map((h) => this.hireRow(h)).join('')
         + `<li class="section">${TR.staffSection}</li>`
         + HR_UPGRADES.map((id) => this.upgradeRow(id)).join('');
     if (html === this.list.innerHTML) return;

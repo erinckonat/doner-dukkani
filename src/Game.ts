@@ -1,10 +1,13 @@
 import * as THREE from 'three';
-import { BAL, HIRES, UNLOCKS, UPGRADES, upgradeCost, type HireDef, type HireId, type UnlockDef, type UpgradeId } from './config/balance';
+import {
+  BAL, PRODUCTS, priceOf, SHOPS, UPGRADES, upgradeCost,
+  type HireDef, type HireId, type ProductKind, type ShopDef, type ShopId, type UnlockDef, type UpgradeId,
+} from './config/balance';
 import { Sfx } from './core/Audio';
 import { Flyer } from './core/Flyer';
 import { Input } from './core/Input';
 import { Nav, type Rect } from './core/Nav';
-import { loadSave, writeSave, type SaveData } from './core/Save';
+import { freshShop, loadSave, writeSave, type SaveData, type ShopState } from './core/Save';
 import { easeOutQuart, Tweens } from './core/Tween';
 import { dist2 } from './entities/Agent';
 import { Car } from './entities/Car';
@@ -13,12 +16,13 @@ import { Customer } from './entities/Customer';
 import { Player } from './entities/Player';
 import { Staff } from './entities/Staff';
 import { Counter, MAIN_COUNTER, WINDOW_COUNTER, type QueueMember } from './stations/Counter';
-import { DonerSpit } from './stations/DonerSpit';
+import { Producer } from './stations/Producer';
 import { Desk, TrashBin, type DeskKind } from './stations/Props';
 import { Table, type Seat } from './stations/Table';
 import { UnlockTile, type TileDef } from './stations/UnlockTile';
 import { Confetti, FloatingText, makeArrow } from './systems/Effects';
 import { transfer, type ItemKind, type ItemStack } from './systems/ItemStack';
+import { isComplete, remaining, type Order } from './systems/Order';
 import { fmtMoney, Hud } from './ui/Hud';
 import { TR } from './ui/strings.tr';
 import { SavePanel } from './ui/SavePanel';
@@ -34,8 +38,30 @@ interface Carrier {
   isPlayer: boolean;
 }
 
-const BURGER_TILE: TileDef = { id: 'burger', cost: 0, x: BURGER_GATE[0], z: BURGER_GATE[1], label: TR.burgerName };
 const TUTORIAL_STEPS = TR.hints.length;
+const GATE_ID = 'gate';
+/** Share of a machine's top output that actually sells, for income estimates. */
+const SELL_THROUGH = 0.6;
+
+const otherShop = (id: ShopId): ShopId => (id === 'doner' ? 'burger' : 'doner');
+
+/** A shop's state within the save: döner at the top level, others nested. */
+function shopState(data: SaveData, id: ShopId): ShopState | undefined {
+  return id === 'doner' ? data : data[id];
+}
+
+/** Rough TL/second a shop earns on its own, or 0 if it has no staff to run it. */
+function staffedIncome(data: SaveData, id: ShopId) {
+  const st = shopState(data, id);
+  if (!st || !st.hires.cashier || !st.hires.carrier) return 0;
+  const lvl = st.upg.price ?? 0;
+  return SHOPS[id].producers
+    .filter((p) => !p.unlock || st.unlocked.includes(p.unlock))
+    .reduce((sum, p) => sum + (priceOf(p.product, lvl) / PRODUCTS[p.product].interval) * SELL_THROUGH, 0);
+}
+
+export const formatOrder = (o: Order) =>
+  (Object.entries(o) as [ProductKind, number][]).map(([k, n]) => `${n} ${TR.product[k]}`).join(', ');
 
 export class Game {
   renderer: THREE.WebGLRenderer;
@@ -50,8 +76,11 @@ export class Game {
   panel: UpgradePanel;
   savePanel: SavePanel;
   data: SaveData;
+  /** The shop the player is in, and its part of the save. */
+  shop: ShopDef;
+  ss: ShopState;
   player: Player;
-  spits: DonerSpit[] = [];
+  producers: Producer[] = [];
   counters: Counter[] = [];
   tables: Table[] = [];
   bin: TrashBin;
@@ -63,6 +92,7 @@ export class Game {
   cars: Car[] = [];
   cashMultiplierUntil = 0;
 
+  private products: ProductKind[];
   private level: LevelRefs;
   private rects: Rect[] = [];
   private tiles: UnlockTile[] = [];
@@ -72,11 +102,12 @@ export class Game {
   private spawnT = [1.5, 3];
   private onlineT = 6;
   private onlineOn = false;
+  private idleT = 0;
   private saveT = 0;
   private time = 0;
   private last = 0;
   private deskInside: DeskKind | null = null;
-  private gateInside = false;
+  private travelling = false;
   private served = 0;
   private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   private camTarget = new THREE.Vector3();
@@ -101,24 +132,31 @@ export class Game {
     sun.shadow.normalBias = 0.02;
     this.scene.add(sun, sun.target);
 
-    this.level = buildLevel(this.scene);
-    this.counters.push(new Counter(MAIN_COUNTER, this.scene, this.flyer));
-    this.spits.push(new DonerSpit(SPIT_POS[0][0], SPIT_POS[0][1], this.scene, this.flyer));
-    this.bin = new TrashBin(BIN_POS, this.scene);
-
     this.data = initialSave ?? loadSave();
     this.migrateSave();
+    const shopId: ShopId = this.data.shop === 'burger' && this.data.burger ? 'burger' : 'doner';
+    this.shop = SHOPS[shopId];
+    this.ss = shopState(this.data, shopId)!;
+    this.products = [...new Set(this.shop.producers.map((p) => p.product))];
+
+    const other = otherShop(shopId);
+    const gateNote = shopState(this.data, other) ? TR.gate.go : TR.gate.open;
+    this.level = buildLevel(this.scene, shopId, this.shop.theme, gateNote);
+    this.counters.push(new Counter(MAIN_COUNTER, this.products, this.shop.theme.stripe, this.scene, this.flyer));
+    for (const p of this.shop.producers) if (!p.unlock) this.addProducer(p.slot, p.product);
+    this.bin = new TrashBin(BIN_POS, this.scene);
+
     this.sfx.enabled = this.data.sound;
     this.player = new Player(this.flyer, () => this.playerCap);
     this.player.pos.set(START_POS[0], 0, START_POS[1]);
     this.player.ch.setYaw(Math.PI);
     this.scene.add(this.player.ch.root);
 
-    for (const id of this.data.unlocked) {
-      const def = UNLOCKS.find((u) => u.id === id);
+    for (const id of this.ss.unlocked) {
+      const def = this.shop.unlocks.find((u) => u.id === id);
       if (def) this.applyUnlock(def, false);
     }
-    for (const h of HIRES) for (let i = 0; i < this.hireCount(h.id); i++) this.spawnStaff(h, false);
+    for (const h of this.shop.hires) for (let i = 0; i < this.hireCount(h.id); i++) this.spawnStaff(h, false);
     this.onlineOn = this.onlineActive;
     this.rebuildNav();
     this.refreshTiles();
@@ -130,7 +168,7 @@ export class Game {
       writeSave(this.data);
       return this.data.sound;
     });
-    this.hud.setProgress(this.data.unlocked.length, UNLOCKS.length);
+    this.hud.setProgress(this.ss.unlocked.length, this.shop.unlocks.length);
     this.panel = new UpgradePanel(this);
     this.savePanel = new SavePanel(this);
     this.confetti = new Confetti(this.scene);
@@ -139,6 +177,8 @@ export class Game {
     this.scene.add(this.arrow.group);
 
     this.grantOffline();
+    const idle = staffedIncome(this.data, other) * BAL.idleRate;
+    if (idle > 0) setTimeout(() => this.hud.toast(TR.gate.idle(TR.shopName[other], fmtMoney(idle * 60))), 1800);
 
     addEventListener('resize', this.resize);
     this.resize();
@@ -150,13 +190,13 @@ export class Game {
   // ---------- stats ----------
 
   get money() { return this.data.money; }
-  lvl(id: UpgradeId) { return this.data.upg[id] ?? 0; }
+  lvl(id: UpgradeId) { return this.ss.upg[id] ?? 0; }
 
   upgradeValue(id: UpgradeId, lvl: number) {
     switch (id) {
       case 'pSpeed': return BAL.player.speed + BAL.player.speedStep * lvl;
       case 'pCap': return BAL.player.cap + BAL.player.capStep * lvl;
-      case 'price': return BAL.price.base + BAL.price.step * lvl;
+      case 'price': return priceOf(this.shop.main, lvl);
       case 'sSpeed': return BAL.staff.speed + BAL.staff.speedStep * lvl;
       case 'sCap': return BAL.staff.cap + BAL.staff.capStep * lvl;
     }
@@ -164,12 +204,15 @@ export class Game {
 
   get playerSpeed() { return this.upgradeValue('pSpeed', this.lvl('pSpeed')); }
   get playerCap() { return this.upgradeValue('pCap', this.lvl('pCap')); }
-  get price() { return this.upgradeValue('price', this.lvl('price')); }
   get staffSpeed() { return this.upgradeValue('sSpeed', this.lvl('sSpeed')); }
   get staffCap() { return this.upgradeValue('sCap', this.lvl('sCap')); }
+  price(kind: ProductKind) { return priceOf(kind, this.lvl('price')); }
+
+  /** Main product's price (the "Döner/Burger Fiyatı" upgrade row). */
+  get mainPrice() { return this.price(this.shop.main); }
 
   incomePerSecond() {
-    return (this.spits.length * this.price) / BAL.spit.interval * 0.6;
+    return this.producers.reduce((s, p) => s + (this.price(p.product) / PRODUCTS[p.product].interval) * SELL_THROUGH, 0);
   }
 
   addMoney(v: number) {
@@ -182,7 +225,7 @@ export class Game {
     const cost = upgradeCost(def, lvl);
     if (lvl >= def.max || this.data.money < cost) return;
     this.data.money -= cost;
-    this.data.upg[id] = lvl + 1;
+    this.ss.upg[id] = lvl + 1;
     this.sfx.play('register', 1, 0);
     this.panel.render();
     writeSave(this.data);
@@ -190,15 +233,15 @@ export class Game {
 
   // ---------- staff ----------
 
-  hireCount(id: HireId) { return this.data.hires[id] ?? 0; }
+  hireCount(id: HireId) { return this.ss.hires[id] ?? 0; }
 
   hire(id: HireId) {
-    const h = HIRES.find((x) => x.id === id)!;
+    const h = this.shop.hires.find((x) => x.id === id)!;
     const n = this.hireCount(id);
     if (n >= h.costs.length || this.data.money < h.costs[n]) return;
-    if (h.requires && !this.data.unlocked.includes(h.requires)) return;
+    if (h.requires && !this.ss.unlocked.includes(h.requires)) return;
     this.data.money -= h.costs[n];
-    this.data.hires[id] = n + 1;
+    this.ss.hires[id] = n + 1;
     this.spawnStaff(h, true);
     this.sfx.play('unlock', 1, 0);
     this.hud.toast(TR.hiredToast(TR.hire[id].name));
@@ -209,6 +252,7 @@ export class Game {
   /** A fresh hire walks in through the door; loaded staff start at their spot. */
   private spawnStaff(h: HireDef, walkIn: boolean) {
     const counter = h.role === 'cashier' ? this.counters[h.counter ?? 0] : null;
+    if (h.role === 'cashier' && !counter) return;
     let home: THREE.Vector3;
     if (counter) home = counter.cashierZone.clone();
     else {
@@ -222,7 +266,7 @@ export class Game {
     this.scene.add(s.ch.root);
   }
 
-  /** Saves from before the HR desk kept staff as floor unlocks; turn them into hires. */
+  /** Old döner saves: staff that were floor unlocks, and prices 40× smaller. */
   private migrateSave() {
     const legacy: [string, HireId][] = [
       ['cashier1', 'cashier'], ['cashier2', 'cashierWindow'],
@@ -236,7 +280,7 @@ export class Game {
       d.hires[id] = (d.hires[id] ?? 0) + 1;
       hadStaff = true;
     }
-    d.unlocked = d.unlocked.filter((id) => UNLOCKS.some((u) => u.id === id));
+    d.unlocked = d.unlocked.filter((id) => SHOPS.doner.unlocks.some((u) => u.id === id));
     if (hadStaff && !d.unlocked.includes('hr')) d.unlocked.push('hr');
 
     // v1 → v2: prices moved to real lira (döner 5 → 200). Scale money by the same 40×
@@ -251,24 +295,37 @@ export class Game {
   // ---------- unlocks ----------
 
   private unlockName(def: UnlockDef) {
-    return TR.unlockKind[def.kind];
+    if (def.kind !== 'producer') return TR.unlockKind[def.kind];
+    const p = this.shop.producers.find((x) => x.unlock === def.id);
+    return p ? TR.machine[p.product] : TR.unlockKind.producer;
+  }
+
+  private addProducer(slot: number, product: ProductKind) {
+    const [x, z] = SPIT_POS[slot];
+    const p = new Producer(x, z, product, this.scene, this.flyer);
+    this.producers.push(p);
+    return p;
+  }
+
+  /** Products customers can order now: those with a machine installed. */
+  private availableProducts() {
+    return this.products.filter((k) => this.producers.some((p) => p.product === k));
   }
 
   private applyUnlock(def: UnlockDef, animate: boolean) {
     let obj: THREE.Object3D;
+    const theme = this.shop.theme;
     switch (def.kind) {
       case 'table': {
         const [x, z] = TABLE_POS[def.index!];
-        const t = new Table(x, z, this.scene, this.flyer);
+        const t = new Table(x, z, this.scene, this.flyer, theme.chair, theme.chairDark);
         this.tables.push(t);
         obj = t.group;
         break;
       }
-      case 'spit': {
-        const [x, z] = SPIT_POS[def.index!];
-        const s = new DonerSpit(x, z, this.scene, this.flyer);
-        this.spits.push(s);
-        obj = s.group;
+      case 'producer': {
+        const pd = this.shop.producers.find((p) => p.unlock === def.id)!;
+        obj = this.addProducer(pd.slot, pd.product).group;
         break;
       }
       case 'office':
@@ -281,7 +338,7 @@ export class Game {
         break;
       case 'window': {
         this.level.windowWall.visible = false;
-        const k = new Counter(WINDOW_COUNTER, this.scene, this.flyer);
+        const k = new Counter(WINDOW_COUNTER, this.products, theme.stripe, this.scene, this.flyer);
         this.counters.push(k);
         obj = k.group;
         break;
@@ -301,7 +358,7 @@ export class Game {
   private rebuildNav() {
     this.rects = [
       ...this.level.rects,
-      ...this.spits.map((s) => s.rect),
+      ...this.producers.map((p) => p.rect),
       ...this.counters.map((k) => k.rect),
       ...this.tables.map((t) => t.rect),
       this.bin.rect,
@@ -310,18 +367,31 @@ export class Game {
     this.nav.rebuild(this.rects);
   }
 
+  /**
+   * The roadside gate to the other shop: a paid tile the first time (the döner
+   * shop, once complete), a free travel tile after that.
+   */
+  private gateTile(): TileDef | null {
+    const other = otherShop(this.shop.id);
+    const [x, z] = BURGER_GATE;
+    const name = TR.shopName[other];
+    if (shopState(this.data, other)) return { id: GATE_ID, cost: 0, x, z, label: TR.gate.goTile(name), note: '→' };
+    const allDone = this.ss.unlocked.length >= this.shop.unlocks.length;
+    return allDone ? { id: GATE_ID, cost: SHOPS[other].openCost, x, z, label: name } : null;
+  }
+
   private refreshTiles() {
-    const locked = UNLOCKS.filter((u) => !this.data.unlocked.includes(u.id)).slice(0, 2);
-    const wanted: TileDef[] = locked.length
-      ? locked.map((u) => ({ id: u.id, cost: u.cost, x: u.x, z: u.z, label: this.unlockName(u) }))
-      : [BURGER_TILE];
+    const locked = this.shop.unlocks.filter((u) => !this.ss.unlocked.includes(u.id)).slice(0, 2);
+    const wanted: TileDef[] = locked.map((u) => ({ id: u.id, cost: u.cost, x: u.x, z: u.z, label: this.unlockName(u) }));
+    const gate = this.gateTile();
+    if (gate) wanted.push(gate);
     this.tiles = this.tiles.filter((t) => {
-      if (wanted.some((w) => w.id === t.def.id)) return true;
+      if (wanted.some((w) => w.id === t.def.id && w.cost === t.def.cost)) return true;
       t.dispose();
       return false;
     });
     for (const w of wanted) {
-      if (!this.tiles.some((t) => t.def.id === w.id)) this.tiles.push(new UnlockTile(w, this.data.paid[w.id] ?? 0, this.scene));
+      if (!this.tiles.some((t) => t.def.id === w.id)) this.tiles.push(new UnlockTile(w, this.ss.paid[w.id] ?? 0, this.scene));
     }
   }
 
@@ -329,20 +399,20 @@ export class Game {
     for (const tile of [...this.tiles]) {
       tile.update(this.reduced ? 0 : this.time);
       const inside = dist2(this.player.pos, tile.pos) < 0.95 * 0.95;
-      if (tile.def.id === 'burger') {
-        if (inside && !this.gateInside) this.hud.toast(TR.burgerSoon);
-        this.gateInside = inside;
-        continue;
-      }
       if (!inside) { tile.hold = 0; continue; }
       tile.hold += dt;
-      // Crossing a 1.9 m tile at walking speed takes ~0.4 s; only a deliberate stop pays.
-      if (tile.hold < 0.5 || this.data.money < 1) continue;
+      // Crossing a 1.9 m tile at walking speed takes ~0.4 s; only a deliberate stop counts.
+      if (tile.hold < 0.5) continue;
+      if (tile.def.cost === 0) {
+        this.travel(otherShop(this.shop.id));
+        return;
+      }
+      if (this.data.money < 1) continue;
       const rate = Math.max(tile.def.cost / 1.3, 40);
       const amt = Math.min(this.data.money, tile.remaining, rate * dt);
       this.data.money -= amt;
       tile.paid += amt;
-      this.data.paid[tile.def.id] = tile.paid;
+      this.ss.paid[tile.def.id] = tile.paid;
       tile.draw();
       this.sfx.play('tick', 1 + (tile.paid / tile.def.cost) * 1.5, 70);
       if (tile.remaining <= 0.001) this.completeUnlock(tile);
@@ -350,15 +420,34 @@ export class Game {
   }
 
   private completeUnlock(tile: UnlockTile) {
-    const def = UNLOCKS.find((u) => u.id === tile.def.id)!;
-    this.data.unlocked.push(def.id);
-    delete this.data.paid[def.id];
+    delete this.ss.paid[tile.def.id];
     tile.dispose();
     this.tiles = this.tiles.filter((t) => t !== tile);
+    if (tile.def.id === GATE_ID) {
+      // The new shop is open: set it up and go there.
+      const other = otherShop(this.shop.id);
+      if (other === 'burger') this.data.burger = freshShop();
+      this.sfx.play('unlock', 1, 0);
+      this.hud.toast(TR.gate.opened(TR.shopName[other]));
+      this.confetti.burst(tile.pos);
+      setTimeout(() => this.travel(other), 1200);
+      return;
+    }
+    const def = this.shop.unlocks.find((u) => u.id === tile.def.id)!;
+    this.ss.unlocked.push(def.id);
     this.applyUnlock(def, true);
     this.refreshTiles();
-    this.hud.setProgress(this.data.unlocked.length, UNLOCKS.length);
+    this.hud.setProgress(this.ss.unlocked.length, this.shop.unlocks.length);
     writeSave(this.data);
+  }
+
+  /** Switch shops: save, then reload into the other one. */
+  private travel(to: ShopId) {
+    if (this.travelling || !shopState(this.data, to)) return;
+    this.travelling = true;
+    this.data.shop = to;
+    writeSave(this.data);
+    location.reload();
   }
 
   // ---------- customers & serving ----------
@@ -372,25 +461,35 @@ export class Game {
     return free.length ? free[Math.floor(Math.random() * free.length)] : null;
   }
 
+  /** The main product, plus a chance of each extra the shop can make. */
+  private makeOrder(maxMain: number): Order {
+    const main = this.shop.main;
+    const o: Order = { [main]: 1 + Math.floor(Math.random() * maxMain) };
+    for (const k of this.availableProducts()) {
+      if (k !== main && Math.random() < 0.6) o[k] = Math.random() < 0.3 ? 2 : 1;
+    }
+    return o;
+  }
+
   private spawnInterval(i: number) {
+    const n = this.producers.length;
     const base = i === 0
-      ? Math.max(1.6, 5.5 - 0.7 * this.spits.length - 0.2 * this.tables.length)
-      : Math.max(2.5, 6 - 0.5 * this.spits.length);
+      ? Math.max(1.6, 5.5 - 0.7 * n - 0.2 * this.tables.length)
+      : Math.max(2.5, 6 - 0.5 * n);
     return base * (0.8 + Math.random() * 0.4);
   }
 
   private spawnCustomer(k: Counter) {
-    // Orders of up to 2 from the start, 3 once the shop has grown a bit.
-    const maxWant = Math.min(BAL.maxOrder, 2 + Math.floor(this.data.unlocked.length / 4));
-    const want = 1 + Math.floor(Math.random() * maxWant);
+    // Up to 2 of the main product from the start, 3 once the shop has grown a bit.
+    const order = this.makeOrder(Math.min(BAL.maxOrder, 2 + Math.floor(this.ss.unlocked.length / 4)));
     if (k.def.drive) {
-      const car = new Car(k, this.scene, this.flyer, want);
+      const car = new Car(k, this.scene, this.flyer, order);
       k.queue.push(car);
       car.goTo(this.nav, k.slot(k.queue.length - 1));
       this.cars.push(car);
       return;
     }
-    const c = new Customer(k, this, want);
+    const c = new Customer(k, this, order);
     c.pos.set(k.spawn.x + (Math.random() - 0.5) * 3, 0, k.spawn.z);
     this.scene.add(c.ch.root);
     k.queue.push(c);
@@ -416,13 +515,22 @@ export class Game {
       k.playerHere = dist2(this.player.pos, k.cashierZone) < 0.8 * 0.8;
       k.serveT -= dt;
       const c = k.queue[0];
-      if (!c || !c.arrived || !k.cashierPresent || k.serveT > 0 || !k.stock.count) continue;
-      transfer(k.stock, c.stack, 0.3);
-      c.got++;
+      if (!c || !c.arrived || !k.cashierPresent || k.serveT > 0) continue;
+      // Hand over whatever part of the order the counter has.
+      const next = remaining(c.order, c.got).find(([kind]) => k.stocks.get(kind)?.count);
+      if (!next) continue;
+      const kind = next[0];
+      transfer(k.stocks.get(kind)!, c.stack, 0.3);
+      c.got[kind] = (c.got[kind] ?? 0) + 1;
       k.serveT = BAL.serveInterval;
       if (k.playerHere) this.sfx.play('serve');
-      if (c.got >= c.want) this.completeOrder(k, c);
+      if (isComplete(c.order, c.got)) this.completeOrder(k, c);
     }
+  }
+
+  private orderValue(o: Order, markup = 0) {
+    return (Object.entries(o) as [ProductKind, number][])
+      .reduce((sum, [k, n]) => sum + Math.round(this.price(k) * (1 + markup)) * n, 0);
   }
 
   private completeOrder(k: Counter, c: QueueMember) {
@@ -439,7 +547,7 @@ export class Game {
     if (c instanceof Car) at.set(c.pos.x + 0.9, 1.1, c.pos.z);
     else (c as Customer).ch.hand.getWorldPosition(at);
     const mult = performance.now() < this.cashMultiplierUntil ? 2 : 1;
-    const amount = c.got * this.price * mult;
+    const amount = this.orderValue(c.order) * mult;
     this.addMoney(amount);
     this.floats.spawn(at, `+${fmtMoney(amount)}`);
     this.sfx.play('register', 1, 150);
@@ -451,7 +559,7 @@ export class Game {
   // ---------- online orders ----------
 
   private get onlineActive() {
-    return this.data.unlocked.includes(BAL.online.startsAfter);
+    return this.ss.unlocked.includes(BAL.online.startsAfter);
   }
 
   private updateOnline(dt: number) {
@@ -467,19 +575,19 @@ export class Game {
     if (this.onlineT <= 0) {
       this.onlineT = o.interval[0] + Math.random() * (o.interval[1] - o.interval[0]);
       if (this.couriers.length < o.maxActive && k.queue.length < k.def.maxQueue) {
-        const want = 1 + Math.floor(Math.random() * o.maxOrder);
-        this.couriers.push(new Courier(this, k, want));
+        const order = this.makeOrder(o.maxOrder);
+        this.couriers.push(new Courier(this, k, order));
         this.sfx.play('order', 1, 0);
-        this.hud.toast(TR.onlineNew(want));
+        this.hud.toast(TR.onlineNew(formatOrder(order)));
       }
     }
     for (const x of this.couriers) x.update(dt);
     this.couriers = this.couriers.filter((x) => !x.dead);
   }
 
-  /** Paid on delivery: online price per döner, minus the courier's fee. */
+  /** Paid on delivery: online prices (shop price + markup), minus the courier's fee. */
   onlineDelivered(c: Courier) {
-    const gross = c.want * (this.price + BAL.online.markup);
+    const gross = this.orderValue(c.order, BAL.online.markup);
     const fee = BAL.online.courierFee;
     const net = gross - fee;
     this.addMoney(net);
@@ -494,24 +602,21 @@ export class Game {
     if (c.cd > 0) return;
     const p = c.pos;
     const st = c.stack;
-    if (c.accepts.has('doner') && st.canAccept('doner')) {
-      for (const s of this.spits) {
-        if (s.tray.count && dist2(p, s.zone) < 1.1 * 1.1) {
-          transfer(s.tray, st);
-          c.cd = BAL.transferInterval;
-          if (c.isPlayer) this.sfx.play('pickup', 1 + st.count * 0.04);
-          return;
-        }
-      }
+    for (const m of this.producers) {
+      if (!m.tray.count || !c.accepts.has(m.product) || !st.canAccept(m.product) || dist2(p, m.zone) > 1.1 * 1.1) continue;
+      transfer(m.tray, st);
+      c.cd = BAL.transferInterval;
+      if (c.isPlayer) this.sfx.play('pickup', 1 + st.count * 0.04);
+      return;
     }
-    if (st.kind === 'doner') {
+    if (st.kind && st.kind !== 'trash') {
       for (const k of this.counters) {
-        if (dist2(p, k.dropZone) < 1 && k.stock.canAccept('doner')) {
-          transfer(st, k.stock);
-          c.cd = BAL.transferInterval;
-          if (c.isPlayer) this.sfx.play('drop');
-          return;
-        }
+        const pile = k.stocks.get(st.kind);
+        if (!pile || dist2(p, k.dropZone) >= 1 || !pile.canAccept(st.kind)) continue;
+        transfer(st, pile);
+        c.cd = BAL.transferInterval;
+        if (c.isPlayer) this.sfx.play('drop');
+        return;
       }
     }
     if (c.accepts.has('trash') && st.canAccept('trash')) {
@@ -535,19 +640,30 @@ export class Game {
 
   // ---------- misc systems ----------
 
+  /** Staffed shops keep earning (at a reduced rate) while the game is closed. */
   private grantOffline() {
-    if (!this.data.t || !this.hireCount('cashier') || !this.hireCount('carrier')) return;
+    if (!this.data.t) return;
     const secs = Math.min((Date.now() - this.data.t) / 1000, BAL.offlineCapSec);
-    const earn = Math.floor(secs * this.incomePerSecond() * BAL.offlineRate);
+    const rate = staffedIncome(this.data, 'doner') + staffedIncome(this.data, 'burger');
+    const earn = Math.floor(secs * rate * BAL.offlineRate);
     if (earn < 1) return;
     this.data.money += earn;
     setTimeout(() => this.hud.toast(TR.offline(fmtMoney(earn))), 600);
   }
 
+  /** The shop the player isn't in keeps selling through its staff. */
+  private updateIdleIncome(dt: number) {
+    this.idleT += dt;
+    if (this.idleT < 1) return;
+    const rate = staffedIncome(this.data, otherShop(this.shop.id)) * BAL.idleRate;
+    this.addMoney(rate * this.idleT);
+    this.idleT = 0;
+  }
+
   private tutorialTarget(step: number): THREE.Vector3 | null {
     const k = this.counters[0];
     switch (step) {
-      case 0: return this.spits[0].zone;
+      case 0: return this.producers[0].zone;
       case 1: return k.dropZone;
       case 2: return k.cashierZone;
       case 3: return this.tiles.find((t) => t.def.id === 'table1')?.pos ?? null;
@@ -558,20 +674,26 @@ export class Game {
   private tutorialDone(step: number) {
     const k = this.counters[0];
     switch (step) {
-      case 0: return this.player.stack.kind === 'doner' || k.stock.count > 0;
-      case 1: return k.stock.count > 0 || this.served > 0;
+      case 0: return this.player.stack.kind === this.shop.main || k.stockCount > 0;
+      case 1: return k.stockCount > 0 || this.served > 0;
       case 2: return this.served > 0;
-      case 3: return this.data.unlocked.includes('table1');
+      case 3: return this.ss.unlocked.includes('table1');
       default: return true;
     }
   }
 
   private updateTutorial() {
+    const a = this.arrow;
+    // The tutorial belongs to the first shop only.
+    if (this.shop.id !== 'doner') {
+      a.group.visible = false;
+      this.hud.setHint(null);
+      return;
+    }
     while (this.data.tut < TUTORIAL_STEPS && this.tutorialDone(this.data.tut)) this.data.tut++;
     const step = this.data.tut;
     const target = step < TUTORIAL_STEPS ? this.tutorialTarget(step) : null;
     this.hud.setHint(target ? TR.hints[step] : null);
-    const a = this.arrow;
     a.group.visible = !!target;
     if (target) {
       const t = this.reduced ? 0 : this.time;
@@ -595,9 +717,9 @@ export class Game {
 
   private updateAmbience(dt: number) {
     const p = this.player.pos;
-    const near = Math.min(...this.spits.map((s) => Math.sqrt(dist2(p, s.zone))));
+    const near = Math.min(...this.producers.map((m) => Math.sqrt(dist2(p, m.zone))));
     const kitchen = Math.max(0, Math.min(1, 1 - (near - 1) / 10));
-    this.sfx.update(dt, this.customers.length, kitchen, this.spits.length);
+    this.sfx.update(dt, this.customers.length, kitchen, this.producers.length);
   }
 
   private resize = () => {
@@ -623,7 +745,7 @@ export class Game {
   private update(dt: number) {
     this.time += dt;
     this.player.update(dt, this.input.move, this.playerSpeed, this.rects);
-    for (const s of this.spits) s.update(dt, BAL.spit.interval);
+    for (const m of this.producers) m.update(dt);
     this.interact(this.player);
     for (const s of this.staff) {
       s.update(dt);
@@ -634,6 +756,7 @@ export class Game {
     this.updateOnline(dt);
     this.updateTiles(dt);
     this.updateDesks();
+    this.updateIdleIncome(dt);
     this.flyer.update(dt);
     this.tweens.update(dt);
     this.confetti.update(dt);

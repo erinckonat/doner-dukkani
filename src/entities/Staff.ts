@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import type { StaffRole } from '../config/balance';
+import type { ProductKind, StaffRole } from '../config/balance';
 import type { Game } from '../Game';
 import type { Counter } from '../stations/Counter';
+import type { Producer } from '../stations/Producer';
 import { ItemStack, type ItemKind } from '../systems/ItemStack';
 import { C } from '../world/Assets';
 import { Agent, dist2 } from './Agent';
@@ -23,7 +24,7 @@ export class Staff extends Agent {
   constructor(public role: StaffRole, public counter: Counter | null, private home: THREE.Vector3, private g: Game, from?: THREE.Vector3) {
     super({ shirt: SHIRT[role], pants: C.dark, skin: pick(LOOKS.skins), hair: pick(LOOKS.hair), hat: 'cap', hatColor: C.primary, apron: role === 'cleaner' ? C.cream : undefined });
     this.stack = new ItemStack(this.ch.hand, g.flyer, () => g.staffCap);
-    this.accepts = new Set(role === 'carrier' ? ['doner'] : role === 'cleaner' ? ['trash'] : []);
+    this.accepts = new Set<ItemKind>(role === 'carrier' ? g.shop.producers.map((p) => p.product) : role === 'cleaner' ? ['trash'] : []);
     this.pos.copy(from ?? home);
     if (role === 'cashier' && counter) counter.staffCashier = this;
   }
@@ -49,23 +50,29 @@ export class Staff extends Agent {
 
   private thinkCarrier() {
     const g = this.g;
-    const anyTray = g.spits.some((s) => s.tray.count > 0);
+    const st = this.stack;
+    const onCounters = (kind: ProductKind) => g.counters.reduce((n, k) => n + (k.stocks.get(kind)?.count ?? 0), 0);
+    // Machines with something to pick up that fits what is already in hand.
+    const ready = g.producers.filter((p) => p.tray.count > 0 && (!st.kind || st.kind === p.product));
     if (this.mode === 'collect') {
-      if (this.stack.isFull || (this.stack.count > 0 && !anyTray)) this.mode = 'deliver';
+      if (st.isFull || (st.count > 0 && !ready.length)) this.mode = 'deliver';
       else {
-        let best = g.spits[0];
-        for (const s of g.spits) {
-          if (s.tray.count > best.tray.count || (s.tray.count === best.tray.count && dist2(s.zone, this.pos) < dist2(best.zone, this.pos))) best = s;
+        if (ready.length) {
+          // Fetch what the counters are shortest of; then the fuller tray; then the nearer one.
+          const score = (p: Producer) => p.tray.count - 2 * onCounters(p.product) - Math.sqrt(dist2(p.zone, this.pos)) * 0.2;
+          const best = ready.reduce((a, b) => (score(b) > score(a) ? b : a));
+          this.moveTo(g.nav, best.zone);
+        } else if (!st.count && !g.producers.some((p) => dist2(this.pos, p.zone) < 1)) {
+          this.moveTo(g.nav, this.home);
         }
-        if (best.tray.count > 0 || dist2(this.pos, best.zone) < 1) this.moveTo(g.nav, best.zone);
-        else if (!this.stack.count) this.moveTo(g.nav, this.home);
         return;
       }
     }
-    if (!this.stack.count) { this.mode = 'collect'; return; }
-    const open = g.counters.filter((k) => !k.stock.isFull);
+    if (!st.count) { this.mode = 'collect'; return; }
+    const kind = st.kind as ProductKind;
+    const open = g.counters.filter((k) => k.stocks.get(kind) && !k.stocks.get(kind)!.isFull);
     if (!open.length) return;
-    const k = open.reduce((a, b) => (b.stock.count < a.stock.count ? b : a));
+    const k = open.reduce((a, b) => (b.stocks.get(kind)!.count < a.stocks.get(kind)!.count ? b : a));
     this.moveTo(g.nav, k.dropZone);
   }
 

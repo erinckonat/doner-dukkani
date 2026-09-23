@@ -4,6 +4,7 @@ import type { Game } from '../Game';
 import type { Counter } from '../stations/Counter';
 import type { Seat } from '../stations/Table';
 import { ItemStack, transfer } from '../systems/ItemStack';
+import { remaining, type Order } from '../systems/Order';
 import { makeTrash } from '../world/Assets';
 import { WAIT_SPOT } from '../world/layout';
 import { Agent } from './Agent';
@@ -15,19 +16,17 @@ export type CustomerState = 'queue' | 'toSeat' | 'eating' | 'waitSeat' | 'leavin
 export class Customer extends Agent {
   state: CustomerState = 'queue';
   stack: ItemStack;
-  want: number;
-  got = 0;
+  got: Order = {};
   waitT = 0;
   dead = false;
   private seat: Seat | null = null;
   private timer = 0;
   private bubble = new OrderBubble();
 
-  constructor(public counter: Counter, private g: Game, want: number) {
+  constructor(public counter: Counter, private g: Game, public order: Order) {
     super({ shirt: pick(LOOKS.shirts), pants: pick(LOOKS.pants), skin: pick(LOOKS.skins), hair: pick(LOOKS.hair) });
-    this.want = want;
     this.speed = BAL.customerSpeed * (0.9 + Math.random() * 0.2);
-    this.stack = new ItemStack(this.ch.hand, g.flyer, () => 99);
+    this.stack = new ItemStack(this.ch.hand, g.flyer, () => 99, undefined, true);
     this.bubble.sprite.position.y = 2.35;
     this.ch.root.add(this.bubble.sprite);
   }
@@ -44,7 +43,7 @@ export class Customer extends Agent {
           this.ch.face(-dx, -dz, dt);
           if (front) this.waitT += dt;
         }
-        if (front && this.arrived) this.bubble.show(this.want - this.got, this.waitT > BAL.angryAfter);
+        if (front && this.arrived) this.bubble.show(remaining(this.order, this.got), this.waitT > BAL.angryAfter);
         else this.bubble.hide();
         break;
       }
@@ -110,7 +109,8 @@ export class Customer extends Agent {
     const seat = this.seat!;
     const from = new THREE.Vector3();
     seat.plate.anchor.getWorldPosition(from);
-    const n = seat.plate.clear();
+    // A tray's worth of wrappers, cups and boxes: at most three pieces per diner.
+    const n = Math.min(3, seat.plate.clear());
     for (let i = 0; i < n; i++) {
       const t = makeTrash();
       t.position.copy(from);

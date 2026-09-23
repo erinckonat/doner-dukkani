@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Rect } from '../core/Nav';
+import type { ShopId, ShopTheme } from '../config/balance';
 import { TR } from '../ui/strings.tr';
-import { at, box, C, canvasTexture, cyl, drawDonerIcon, makePlant, makeTree, roundRect } from './Assets';
+import { at, box, C, canvasTexture, cyl, drawProductIcon, makePlant, makeTree, roundRect } from './Assets';
 import { BURGER_GATE, DOOR, DRIVE_ROAD, ROOM } from './layout';
 
 export interface LevelRefs {
@@ -35,7 +36,8 @@ function wall(scene: THREE.Scene, rects: Rect[], r: Rect, h: number, color: stri
   return m;
 }
 
-export function buildLevel(scene: THREE.Scene): LevelRefs {
+/** The shop building. `gateNote` is the line under the other shop's name on the roadside sign. */
+export function buildLevel(scene: THREE.Scene, shop: ShopId, theme: ShopTheme, gateNote: string): LevelRefs {
   const rects: Rect[] = [];
   const { minX, maxX, minZ, maxZ } = ROOM;
 
@@ -68,9 +70,9 @@ export function buildLevel(scene: THREE.Scene): LevelRefs {
 
   // Checker floor inside.
   const floor = canvasTexture(128, 128, (ctx) => {
-    ctx.fillStyle = '#EFE2CB';
+    ctx.fillStyle = theme.floorA;
     ctx.fillRect(0, 0, 128, 128);
-    ctx.fillStyle = '#E4D0B0';
+    ctx.fillStyle = theme.floorB;
     ctx.fillRect(0, 0, 64, 64);
     ctx.fillRect(64, 64, 64, 64);
   }).tex;
@@ -79,45 +81,50 @@ export function buildLevel(scene: THREE.Scene): LevelRefs {
   scene.add(at(plane(maxX - minX, maxZ - minZ, floor, 0), 0, 0, 0));
 
   // Kitchen zone behind the counter.
-  scene.add(at(plane(10, 6.5, '#D8C0A0', 0.004), -5, 0.004, -5.75));
-  scene.add(at(plane(10, 0.08, C.primary, 0.006), -5, 0.006, -2.5));
+  scene.add(at(plane(10, 6.5, theme.kitchen, 0.004), -5, 0.004, -5.75));
+  scene.add(at(plane(10, 0.08, theme.stripe, 0.006), -5, 0.006, -2.5));
 
   // Walls: tall at the back, low at the sides, knee-high in front so the camera sees in.
   const back = wall(scene, rects, { x0: minX - WALL, x1: maxX + WALL, z0: minZ - WALL, z1: minZ }, 2.6, '#EAD7BD');
   back.castShadow = false;
-  const stripe = box(maxX - minX, 0.14, 0.04, C.primary, false);
+  const stripe = box(maxX - minX, 0.14, 0.04, theme.stripe, false);
   stripe.position.set(0, 1.1, minZ + 0.02);
   scene.add(stripe);
-  wall(scene, rects, { x0: minX - WALL, x1: minX, z0: minZ, z1: 2 }, 1.3, '#E3CCAE');
-  wall(scene, rects, { x0: minX - WALL, x1: minX, z0: 4, z1: maxZ }, 1.3, '#E3CCAE');
-  wall(scene, rects, { x0: maxX, x1: maxX + WALL, z0: minZ, z1: maxZ }, 1.3, '#E3CCAE');
-  wall(scene, rects, { x0: minX - WALL, x1: DOOR.x0, z0: maxZ, z1: maxZ + WALL }, 0.5, '#E3CCAE');
-  wall(scene, rects, { x0: DOOR.x1, x1: maxX + WALL, z0: maxZ, z1: maxZ + WALL }, 0.5, '#E3CCAE');
+  wall(scene, rects, { x0: minX - WALL, x1: minX, z0: minZ, z1: 2 }, 1.3, theme.wall);
+  wall(scene, rects, { x0: minX - WALL, x1: minX, z0: 4, z1: maxZ }, 1.3, theme.wall);
+  wall(scene, rects, { x0: maxX, x1: maxX + WALL, z0: minZ, z1: maxZ }, 1.3, theme.wall);
+  wall(scene, rects, { x0: minX - WALL, x1: DOOR.x0, z0: maxZ, z1: maxZ + WALL }, 0.5, theme.wall);
+  wall(scene, rects, { x0: DOOR.x1, x1: maxX + WALL, z0: maxZ, z1: maxZ + WALL }, 0.5, theme.wall);
 
   // Window gap on the left wall is always solid: wall until unlocked, counter after.
-  const windowWall = box(WALL, 1.3, 2, '#E3CCAE');
+  const windowWall = box(WALL, 1.3, 2, theme.wall);
   windowWall.position.set(minX - WALL / 2, 0.65, 3);
   scene.add(windowWall);
   rects.push({ x0: -10.4, x1: -9.6, z0: 2, z1: 4 });
 
   // Door mat.
-  scene.add(at(plane(3, 1.2, C.primary, 0.006), 0, 0.006, maxZ - 0.7));
+  scene.add(at(plane(3, 1.2, theme.stripe, 0.006), 0, 0.006, maxZ - 0.7));
 
   // Shop sign on the back wall.
   const sign = canvasTexture(1024, 192, (ctx) => {
+    const icon = shop === 'doner' ? 'doner' : 'burger';
     ctx.fillStyle = C.cream;
     roundRect(ctx, 8, 8, 1008, 176, 40);
     ctx.fill();
     ctx.lineWidth = 10;
-    ctx.strokeStyle = C.primary;
+    ctx.strokeStyle = theme.stripe;
     ctx.stroke();
-    drawDonerIcon(ctx, 120, 96, 56);
-    drawDonerIcon(ctx, 904, 96, 56);
-    ctx.fillStyle = C.primary;
-    ctx.font = '800 108px "Baloo 2", sans-serif';
+    drawProductIcon(ctx, icon, 120, 96, 56);
+    drawProductIcon(ctx, icon, 904, 96, 56);
+    ctx.fillStyle = shop === 'doner' ? C.primary : '#8A4A12';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(TR.title.toLocaleUpperCase('tr-TR'), 512, 104);
+    // Shrink the name until it clears the icons at both ends.
+    const name = TR.shopName[shop].toLocaleUpperCase('tr-TR');
+    let size = 108;
+    do ctx.font = `800 ${size}px "Baloo 2", sans-serif`;
+    while (ctx.measureText(name).width > 680 && (size -= 4) > 48);
+    ctx.fillText(name, 512, 104);
   }).tex;
   const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 1.2), new THREE.MeshStandardMaterial({ map: sign, roughness: 0.9 }));
   signMesh.position.set(-3, 3.3, minZ - 0.1);
@@ -148,10 +155,10 @@ export function buildLevel(scene: THREE.Scene): LevelRefs {
     ctx.fillStyle = C.dark;
     ctx.textAlign = 'center';
     ctx.font = '800 64px "Baloo 2", sans-serif';
-    ctx.fillText(TR.burgerName, 256, 118);
+    ctx.fillText(TR.shopName[shop === 'doner' ? 'burger' : 'doner'], 256, 118);
     ctx.fillStyle = C.primary;
     ctx.font = '700 44px "Baloo 2", sans-serif';
-    ctx.fillText(TR.soon, 256, 190);
+    ctx.fillText(gateNote, 256, 190);
   }).tex;
   const board = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.5), new THREE.MeshStandardMaterial({ map: gate, roughness: 0.9 }));
   board.position.set(gx, 2.3, gz - 0.9);

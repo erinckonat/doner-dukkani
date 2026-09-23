@@ -181,8 +181,11 @@ button:focus-visible {
   color: var(--cream-hi);
   border-radius: 999px;
   box-shadow: 0 2px 0 var(--primary-deep), var(--shadow);
+  width: max-content;
+  max-width: calc(100vw - var(--s4));
   font: 800 18px/1.4 var(--display);
-  white-space: nowrap;
+  text-align: center;
+  text-wrap: balance;
   pointer-events: none;
   transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
 }
@@ -535,6 +538,7 @@ button:focus-visible {
   .progress { flex-basis: 160px; min-width: 0; padding-inline: var(--s1); font-size: 14px; }
   .hud-actions .icon-btn { width: 40px; height: 40px; }
   .hint { font-size: 16px; }
+  .toast { font-size: 16px; border-radius: var(--s3); }
 }
 
 @media (prefers-reduced-motion: reduce) {

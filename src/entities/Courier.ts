@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Game } from '../Game';
 import type { Counter } from '../stations/Counter';
 import { ItemStack } from '../systems/ItemStack';
+import { remaining, type Order } from '../systems/Order';
 import { at, box, C, cyl, mat } from '../world/Assets';
 import { COURIER_LANE_Z, COURIER_PARK_X } from '../world/layout';
 import { Agent } from './Agent';
@@ -48,7 +49,7 @@ function makeScooter() {
 export class Courier extends Agent {
   state: CourierState = 'arriving';
   stack: ItemStack;
-  got = 0;
+  got: Order = {};
   waitT = 0;
   dead = false;
   private bike: THREE.Group;
@@ -56,12 +57,12 @@ export class Courier extends Agent {
   private bikeV = RIDE_SPEED;
   private bubble = new OrderBubble(COURIER_COLOR);
 
-  constructor(private g: Game, private counter: Counter, public want: number) {
+  constructor(private g: Game, private counter: Counter, public order: Order) {
     super({ shirt: COURIER_COLOR, pants: C.dark, skin: pick(LOOKS.skins), hat: 'cap', hatColor: COURIER_COLOR });
     this.speed = 2.8;
     // Insulated delivery bag on the back.
     this.ch.model.add(at(box(0.42, 0.42, 0.3, COURIER_COLOR), 0, 1.05, -0.36), at(box(0.43, 0.05, 0.31, C.cream, false), 0, 1.2, -0.36));
-    this.stack = new ItemStack(this.ch.hand, g.flyer, () => 99);
+    this.stack = new ItemStack(this.ch.hand, g.flyer, () => 99, undefined, true);
 
     const { bike, wheels } = makeScooter();
     this.bike = bike;
@@ -119,7 +120,7 @@ export class Courier extends Agent {
           this.ch.face(-dx, -dz, dt);
           if (front) this.waitT += dt;
         }
-        if (front && this.arrived) this.bubble.show(this.want - this.got, this.waitT > ANGRY_AFTER);
+        if (front && this.arrived) this.bubble.show(remaining(this.order, this.got), this.waitT > ANGRY_AFTER);
         else this.bubble.hide();
         break;
       }

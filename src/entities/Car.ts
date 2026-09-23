@@ -4,6 +4,7 @@ import type { Flyer } from '../core/Flyer';
 import type { Nav } from '../core/Nav';
 import type { Counter, QueueMember } from '../stations/Counter';
 import { ItemStack } from '../systems/ItemStack';
+import { remaining, type Order } from '../systems/Order';
 import { at, box, C, cyl, mat } from '../world/Assets';
 import { DRIVE_ROAD } from '../world/layout';
 import { LOOKS, pick } from './Character';
@@ -22,7 +23,7 @@ export class Car implements QueueMember {
   root = new THREE.Group();
   stack: ItemStack;
   state: CarState = 'queue';
-  got = 0;
+  got: Order = {};
   waitT = 0;
   dead = false;
   private targetZ: number;
@@ -31,7 +32,7 @@ export class Car implements QueueMember {
   private window = new THREE.Object3D();
   private bubble = new OrderBubble();
 
-  constructor(private counter: Counter, scene: THREE.Scene, flyer: Flyer, public want: number) {
+  constructor(private counter: Counter, scene: THREE.Scene, flyer: Flyer, public order: Order) {
     const paint = pick(PAINT);
     const r = this.root;
     r.add(at(box(1.7, 0.55, 3.2, paint), 0, 0.55, 0));
@@ -69,7 +70,7 @@ export class Car implements QueueMember {
     this.bubble.sprite.position.set(0.4, 2.2, 0);
     r.add(this.bubble.sprite);
 
-    this.stack = new ItemStack(this.window, flyer, () => 99, () => new THREE.Vector3());
+    this.stack = new ItemStack(this.window, flyer, () => 99, undefined, true);
     r.position.set(DRIVE_ROAD.laneX, 0, DRIVE_ROAD.z0);
     this.targetZ = r.position.z;
     scene.add(r);
@@ -96,7 +97,7 @@ export class Car implements QueueMember {
       const front = this.counter.queue[0] === this && this.arrived;
       if (front) {
         this.waitT += dt;
-        this.bubble.show(this.want - this.got, this.waitT > BAL.angryAfter);
+        this.bubble.show(remaining(this.order, this.got), this.waitT > BAL.angryAfter);
       } else this.bubble.hide();
       return;
     }

@@ -1,8 +1,15 @@
 import * as THREE from 'three';
-import { TR } from '../ui/strings.tr';
 import { C, canvasTexture, floorDecal, roundRect } from '../world/Assets';
 
-export interface TileDef { id: string; cost: number; x: number; z: number; label: string }
+export interface TileDef {
+  id: string;
+  cost: number;
+  x: number;
+  z: number;
+  label: string;
+  /** Shown instead of a price on free tiles (e.g. travel between shops). */
+  note?: string;
+}
 
 const SIZE = 256;
 
@@ -58,7 +65,7 @@ export class UnlockTile {
     if (this.def.cost === 0) {
       ctx.fillStyle = C.primary;
       ctx.font = '800 44px "Baloo 2", sans-serif';
-      ctx.fillText(TR.soon, 128, 150);
+      ctx.fillText(this.def.note ?? '', 128, 150);
     } else {
       // Coin + amount, shrunk until the pair fits the tile, then centred.
       const text = remain.toLocaleString('tr-TR');

@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import type { ProductKind } from '../config/balance';
 import type { Flyer } from '../core/Flyer';
 
-export type ItemKind = 'doner' | 'trash';
+export type ItemKind = ProductKind | 'trash';
 
-export const ITEM_H: Record<ItemKind, number> = { doner: 0.17, trash: 0.13 };
+export const ITEM_H: Record<ItemKind, number> = { doner: 0.17, burger: 0.17, fries: 0.2, shake: 0.27, trash: 0.13 };
 
 export type Layout = (i: number, kind: ItemKind) => THREE.Vector3;
 
@@ -20,35 +21,47 @@ export function gridLayout(cols: number, rows: number, dx: number, dz: number): 
   };
 }
 
-/** An ordered pile of one kind of item on an anchor (hands, tray, counter, table...). */
+/**
+ * An ordered pile of items on an anchor (hands, tray, counter, table...). Piles hold
+ * one kind at a time unless `mixed` (a customer's order, a plate), where items of
+ * different kinds sit on top of each other at their own heights.
+ */
 export class ItemStack {
   items: THREE.Object3D[] = [];
+  /** Kind of the top item (the only kind, unless mixed). */
   kind: ItemKind | null = null;
+  private kinds: ItemKind[] = [];
 
   constructor(
     public anchor: THREE.Object3D,
     private flyer: Flyer,
     public capacity: () => number,
     public layout: Layout = columnLayout,
+    public mixed = false,
   ) {}
 
   get count() { return this.items.length; }
   get isFull() { return this.items.length >= this.capacity(); }
 
   canAccept(kind: ItemKind) {
-    return !this.isFull && (this.kind === null || this.kind === kind);
+    return !this.isFull && (this.mixed || this.kind === null || this.kind === kind);
   }
 
   receive(obj: THREE.Object3D, kind: ItemKind, dur = 0.28, onDone?: () => void) {
     const i = this.items.length;
+    const local = this.mixed
+      ? new THREE.Vector3(0, this.kinds.reduce((h, k) => h + ITEM_H[k], 0), 0)
+      : this.layout(i, kind);
     this.items.push(obj);
+    this.kinds.push(kind);
     this.kind = kind;
-    this.flyer.fly(obj, this.anchor, this.layout(i, kind), { dur, onDone });
+    this.flyer.fly(obj, this.anchor, local, { dur, onDone });
   }
 
   take(): THREE.Object3D | undefined {
     const o = this.items.pop();
-    if (!this.items.length) this.kind = null;
+    this.kinds.pop();
+    this.kind = this.kinds[this.kinds.length - 1] ?? null;
     return o;
   }
 
@@ -60,6 +73,7 @@ export class ItemStack {
     }
     const n = this.items.length;
     this.items = [];
+    this.kinds = [];
     this.kind = null;
     return n;
   }

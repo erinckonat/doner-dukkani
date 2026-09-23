@@ -1,15 +1,38 @@
-import type { HireId, StaffRole, UnlockKind, UpgradeId } from '../config/balance';
+import type { HireId, ProductKind, ShopId, StaffRole, UnlockKind, UpgradeId } from '../config/balance';
 
 export const TR = {
   title: 'Döner Dükkanı',
   shop: 'Dükkan',
   unlockKind: {
     table: 'Masa',
-    spit: 'Döner Ocağı',
+    producer: 'Makine',
     office: 'Yönetim Masası',
     hr: 'İK Masası',
     window: 'Paket Penceresi',
   } satisfies Record<UnlockKind, string>,
+  machine: {
+    doner: 'Döner Ocağı',
+    burger: 'Izgara',
+    fries: 'Fritöz',
+    shake: 'Milkshake Makinesi',
+  } satisfies Record<ProductKind, string>,
+  product: {
+    doner: 'döner',
+    burger: 'burger',
+    fries: 'patates',
+    shake: 'milkshake',
+  } satisfies Record<ProductKind, string>,
+  shopName: {
+    doner: 'Döner Dükkanı',
+    burger: 'Burger Dükkanı',
+  } satisfies Record<ShopId, string>,
+  gate: {
+    open: 'Yeni şube',
+    go: 'Diğer şube',
+    goTile: (name: string) => `${name}na git`,
+    opened: (name: string) => `${name} açıldı!`,
+    idle: (name: string, perMin: string) => `${name} sen yokken dakikada ${perMin} kazanıyor`,
+  },
   role: {
     cashier: 'Kasiyer',
     carrier: 'Garson',
@@ -22,6 +45,7 @@ export const TR = {
     sSpeed: { name: 'Personel Hızı', unit: 'm/sn' },
     sCap: { name: 'Personel Kapasitesi', unit: 'adet' },
   } satisfies Record<UpgradeId, { name: string; unit: string }>,
+  priceName: { doner: 'Döner Fiyatı', burger: 'Menü Fiyatları' } satisfies Record<ShopId, string>,
   panelTitle: 'Yönetim',
   panelSub: 'Parayı işine yatır, dükkan büyüsün.',
   hrTitle: 'İnsan Kaynakları',
@@ -29,7 +53,7 @@ export const TR = {
   hrDecal: 'PERSONEL',
   hire: {
     cashier: { name: 'Kasiyer', desc: 'Kasada durur, müşterilere servis yapar.' },
-    carrier: { name: 'Garson', desc: 'Dönerleri ocaktan tezgaha taşır.' },
+    carrier: { name: 'Garson', desc: 'Ürünleri mutfaktan tezgaha taşır.' },
     cleaner: { name: 'Temizlikçi', desc: 'Masalardaki çöpleri toplar.' },
     cashierWindow: { name: 'Pencere Kasiyeri', desc: 'Paket penceresinde servis yapar.' },
   } satisfies Record<HireId, { name: string; desc: string }>,
@@ -73,12 +97,9 @@ export const TR = {
   offline: (amount: string) => `Sen yokken ${amount} kazandın`,
   soon: 'Yakında',
   driveMark: 'PAKET SERVİS',
-  onlineNew: (n: number) => `Yeni online sipariş: ${n} döner`,
+  onlineNew: (items: string) => `Yeni online sipariş: ${items}`,
   onlineStart: 'Online siparişler başladı! Kuryeler kasadan alıp götürür',
   onlineDone: (net: string, gross: string, fee: string) => `Teslim edildi: +${net} (${gross} − ${fee} kurye)`,
-  burgerName: 'Burger Dükkanı',
-  burgerSoon: 'Burger Dükkanı çok yakında açılıyor!',
-  burgerLocked: 'Önce döner dükkanını tamamla',
   hints: [
     'Tepsideki dönerleri al',
     'Dönerleri tezgaha bırak',

@@ -1,21 +1,34 @@
-import type { HireId, UpgradeId } from '../config/balance';
+import type { HireId, ShopId, UpgradeId } from '../config/balance';
 
 const KEY = 'doner-dukkani-save-v1';
 
-export interface SaveData {
-  /** 2 = lira prices (döner 200 TL). Older saves used prices 40× smaller. */
-  v: number;
-  money: number;
+/** Progress in one shop. */
+export interface ShopState {
   unlocked: string[];
   paid: Record<string, number>;
   upg: Partial<Record<UpgradeId, number>>;
   hires: Partial<Record<HireId, number>>;
+}
+
+/**
+ * The döner shop's state sits at the top level (as before there were other shops),
+ * so older saves and the server's save check keep working; other shops nest below.
+ */
+export interface SaveData extends ShopState {
+  /** 2 = lira prices (döner 200 TL). Older saves used prices 40× smaller. */
+  v: number;
+  money: number;
+  /** Shop the player is in; absent = döner. */
+  shop?: ShopId;
+  burger?: ShopState;
   tut: number;
   sound: boolean;
   t: number;
   /** This copy has been matched against the account's cloud save at least once. */
   synced?: boolean;
 }
+
+export const freshShop = (): ShopState => ({ unlocked: [], paid: {}, upg: {}, hires: {} });
 
 export const freshSave = (): SaveData => ({
   v: 2, money: 0, unlocked: [], paid: {}, upg: {}, hires: {}, tut: 0, sound: true, t: 0,
