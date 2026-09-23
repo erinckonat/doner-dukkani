@@ -1,0 +1,88 @@
+import * as THREE from 'three';
+import type { StaffRole } from '../config/balance';
+import type { Game } from '../Game';
+import type { Counter } from '../stations/Counter';
+import { ItemStack, type ItemKind } from '../systems/ItemStack';
+import { C } from '../world/Assets';
+import { Agent, dist2 } from './Agent';
+import { LOOKS, pick } from './Character';
+
+const SHIRT: Record<StaffRole, string> = { cashier: C.gold, carrier: C.gold, cleaner: '#5E8C7A' };
+
+/** Hired worker. Carriers and cleaners run the same station interactions as the player. */
+export class Staff extends Agent {
+  stack: ItemStack;
+  accepts: Set<ItemKind>;
+  cd = 0;
+  isPlayer = false;
+  atPost = false;
+  private mode: 'collect' | 'deliver' = 'collect';
+  private think = 0;
+
+  /** `from` is where they appear (the door for a fresh hire); `home` is where they wait when idle. */
+  constructor(public role: StaffRole, public counter: Counter | null, private home: THREE.Vector3, private g: Game, from?: THREE.Vector3) {
+    super({ shirt: SHIRT[role], pants: C.dark, skin: pick(LOOKS.skins), hair: pick(LOOKS.hair), hat: 'cap', hatColor: C.primary, apron: role === 'cleaner' ? C.cream : undefined });
+    this.stack = new ItemStack(this.ch.hand, g.flyer, () => g.staffCap);
+    this.accepts = new Set(role === 'carrier' ? ['doner'] : role === 'cleaner' ? ['trash'] : []);
+    this.pos.copy(from ?? home);
+    if (role === 'cashier' && counter) counter.staffCashier = this;
+  }
+
+  update(dt: number) {
+    this.speed = this.g.staffSpeed;
+    this.cd -= dt;
+    this.step(dt);
+    this.ch.carrying = this.stack.count > 0;
+    this.think -= dt;
+    if (this.think > 0) return;
+    this.think = 0.25;
+    if (this.role === 'cashier') this.thinkCashier(dt);
+    else if (this.role === 'carrier') this.thinkCarrier();
+    else this.thinkCleaner();
+  }
+
+  private thinkCashier(dt: number) {
+    const k = this.counter!;
+    this.atPost = this.moveTo(this.g.nav, k.cashierZone);
+    if (this.atPost) this.ch.face(k.def.dir[0], k.def.dir[1], dt * 20);
+  }
+
+  private thinkCarrier() {
+    const g = this.g;
+    const anyTray = g.spits.some((s) => s.tray.count > 0);
+    if (this.mode === 'collect') {
+      if (this.stack.isFull || (this.stack.count > 0 && !anyTray)) this.mode = 'deliver';
+      else {
+        let best = g.spits[0];
+        for (const s of g.spits) {
+          if (s.tray.count > best.tray.count || (s.tray.count === best.tray.count && dist2(s.zone, this.pos) < dist2(best.zone, this.pos))) best = s;
+        }
+        if (best.tray.count > 0 || dist2(this.pos, best.zone) < 1) this.moveTo(g.nav, best.zone);
+        else if (!this.stack.count) this.moveTo(g.nav, this.home);
+        return;
+      }
+    }
+    if (!this.stack.count) { this.mode = 'collect'; return; }
+    const open = g.counters.filter((k) => !k.stock.isFull);
+    if (!open.length) return;
+    const k = open.reduce((a, b) => (b.stock.count < a.stock.count ? b : a));
+    this.moveTo(g.nav, k.dropZone);
+  }
+
+  private thinkCleaner() {
+    const g = this.g;
+    const dirty = g.tables.filter((t) => t.dirty);
+    if (this.mode === 'collect') {
+      if (this.stack.isFull || (this.stack.count > 0 && !dirty.length)) this.mode = 'deliver';
+      else {
+        if (dirty.length) {
+          const t = dirty.reduce((a, b) => (dist2(b.center, this.pos) < dist2(a.center, this.pos) ? b : a));
+          this.moveTo(g.nav, t.access);
+        } else this.moveTo(g.nav, this.home);
+        return;
+      }
+    }
+    if (!this.stack.count) { this.mode = 'collect'; return; }
+    this.moveTo(g.nav, g.bin.zone);
+  }
+}

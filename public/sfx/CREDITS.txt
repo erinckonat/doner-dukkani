@@ -1,0 +1,4 @@
+restaurant.mp4
+  Source: "Restaurant ambience.ogg" by stephan (PDSounds), via Wikimedia Commons
+  https://commons.wikimedia.org/wiki/File:Restaurant_ambience.ogg
+  License: Public domain. Trimmed with a 2 s crossfade for seamless looping, converted to AAC.

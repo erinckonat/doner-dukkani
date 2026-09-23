@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#C8412B" />
+    <title>Döner Dükkanı</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23C8412B'/%3E%3Cpath d='M16 6c4 0 6 2 6 4l-2 16h-8L10 10c0-2 2-4 6-4z' fill='%238C4A26'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <canvas id="game" aria-label="Döner Dükkanı oyun alanı"></canvas>
+
+    <header class="hud">
+      <div class="money" id="money">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="13" fill="#E3A64A" stroke="#A8701F" stroke-width="2" />
+          <circle cx="16" cy="16" r="9" fill="none" stroke="#A8701F" stroke-width="1.5" opacity=".5" />
+          <path d="M13 9v12.5c3.2 0 6-1.8 6.5-5M10.5 14.5l6-2.4M10.5 18l6-2.4" fill="none" stroke="#2A1E18" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span id="money-val">₺0</span>
+      </div>
+
+      <div class="progress" aria-live="polite">
+        <span id="prog-label">Dükkan %0</span>
+        <div class="bar"><i id="prog-fill"></i></div>
+      </div>
+
+      <button class="icon-btn" id="sound-btn" type="button" aria-label="Sesi kapat">
+        <svg class="on" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /></svg>
+        <svg class="off" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="m22 9-6 6M16 9l6 6" /></svg>
+      </button>
+    </header>
+
+    <p class="hint" id="hint" hidden></p>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <div id="joy" aria-hidden="true"><div id="joy-knob"></div></div>
+
+    <div class="panel-wrap" id="panel" hidden>
+      <section class="panel" role="dialog" aria-labelledby="panel-title">
+        <header>
+          <div>
+            <h2 id="panel-title">Yönetim</h2>
+            <p class="sub" id="panel-sub">Parayı işine yatır, dükkan büyüsün.</p>
+          </div>
+          <button class="icon-btn small" id="panel-close" type="button" aria-label="Kapat">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </header>
+        <ul id="upg-list"></ul>
+      </section>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
