@@ -64,6 +64,12 @@ export const TR = {
   staffCountOpen: (n: number) => `${n} kişi`,
   hiredToast: (name: string) => `${name} işe başladı!`,
   staffSection: 'Personel Gelişimi',
+  kitchenSection: (used: number, total: number) => `Mutfak · ${used}/${total} makine`,
+  addMachine: (name: string) => `${name} ekle`,
+  machineDesc: 'Aynı üründen daha hızlı üretim.',
+  noRoom: 'Yer yok',
+  machineCount: (n: number) => `${n} adet`,
+  machineAdded: (name: string) => `Yeni ${name} kuruldu!`,
   max: 'MAKS',
   close: 'Kapat',
   save: {

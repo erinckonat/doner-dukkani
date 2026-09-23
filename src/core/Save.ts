@@ -1,4 +1,4 @@
-import type { HireId, ShopId, UpgradeId } from '../config/balance';
+import type { HireId, ProductKind, ShopId, UpgradeId } from '../config/balance';
 import type { Buffs } from '../config/city';
 
 const KEY = 'doner-dukkani-save-v1';
@@ -9,6 +9,8 @@ export interface ShopState {
   paid: Record<string, number>;
   upg: Partial<Record<UpgradeId, number>>;
   hires: Partial<Record<HireId, number>>;
+  /** Extra machines bought at the office, each in one of the spare kitchen slots. */
+  machines?: { product: ProductKind; slot: number }[];
 }
 
 /**

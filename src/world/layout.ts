@@ -11,6 +11,18 @@ export const TABLE_POS: [number, number][] = [
   [3.4, 1.4], [6.9, 1.4],
 ];
 export const SPIT_POS: [number, number][] = [[-4.5, -8], [-7, -8], [-2, -8]];
+/**
+ * Every kitchen machine slot: [x, z, rotation]. The first three are the back-wall slots
+ * the shops' own unlocks use; the rest take extra machines bought at the office — one
+ * more on the back wall and two on the left wall facing into the kitchen.
+ */
+export const MACHINE_SLOTS: [number, number, number][] = [
+  ...SPIT_POS.map(([x, z]): [number, number, number] => [x, z, 0]),
+  [0.5, -8, 0],
+  [-9.0, -5.0, Math.PI / 2],
+  [-9.0, -3.1, Math.PI / 2],
+];
+export const EXTRA_MACHINE_SLOTS = [3, 4, 5];
 /** Pickup zone sits this far in front of the spit centre. */
 export const SPIT_ZONE_DZ = 1.7;
 
@@ -20,7 +32,7 @@ export const HR_POS: [number, number] = [6.9, 7.3];
 export const STAFF_ENTRY: [number, number] = [0, 11];
 /** Idle spots per role: carriers wait by the kitchen, cleaners between the table rows. */
 export const STAFF_HOMES: Record<'carrier' | 'cleaner', [number, number][]> = {
-  carrier: [[-0.4, -5.2], [0.4, -5.8], [-0.4, -6.4]],
+  carrier: [[-1.2, -4.6], [-0.3, -4.6], [0.6, -4.6]],
   cleaner: [[5.15, -0.35], [3.9, -0.35]],
 };
 // Centre of the dining area, between the first four tables.

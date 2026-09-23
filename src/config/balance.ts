@@ -88,6 +88,13 @@ export const PRODUCTS: Record<ProductKind, ProductDef> = {
   shake: { kind: 'shake', price: 90, interval: 1.6, trayMax: 8 },
 };
 
+/**
+ * Extra machines bought at the office (Sept 2026 list prices): industrial 8-radiant döner spit
+ * 51,200 TL (Atalay ADG-8S); 50 cm electric flat grill 6,500 TL (Remta R83); twin fryer
+ * 7,290 TL (Remta R92); twin-spindle milkshake mixer 37,536 TL (Macap F4D).
+ */
+export const MACHINE_PRICE: Record<ProductKind, number> = { doner: 51200, burger: 6500, fries: 7290, shake: 37536 };
+
 export const priceOf = (kind: ProductKind, priceLevel: number) =>
   Math.round(PRODUCTS[kind].price * (1 + BAL.priceStep * priceLevel));
 

@@ -4,7 +4,7 @@ import type { Nav } from '../core/Nav';
 import type { Shop } from '../Shop';
 import type { Counter, QueueMember } from '../stations/Counter';
 import { ItemStack } from '../systems/ItemStack';
-import { orderTotal, remaining, type Order } from '../systems/Order';
+import { remaining, type Order } from '../systems/Order';
 import { at, box, C, cyl, mat } from '../world/Assets';
 import { CITY, DRIVE_ROAD } from '../world/layout';
 import { LOOKS, pick } from './Character';
@@ -108,8 +108,8 @@ export class Car implements QueueMember {
       const angry = this.waitT > BAL.angryAfter;
       if (front) this.bubble.show(remaining(this.order, this.got), angry);
       else this.bubble.hide();
+      // Drivers grumble but hold their place in the lane: cars don't pull out of a queue.
       this.emote.visible = angry && !front;
-      if (this.waitT > BAL.giveUpAfter && orderTotal(this.got) === 0) this.giveUp();
       return;
     }
     this.v = Math.min(TOP_SPEED, this.v + dt * 5);
@@ -126,18 +126,6 @@ export class Car implements QueueMember {
       this.root.removeFromParent();
       this.dead = true;
     }
-  }
-
-  /** Fed up with the queue: pull out and drive off without buying. */
-  private giveUp() {
-    const head = new THREE.Vector3();
-    this.root.getWorldPosition(head);
-    head.y = 2.6;
-    this.shop.gaveUp(this, head);
-    this.bubble.hide();
-    this.emote.visible = true;
-    this.state = 'leaving';
-    this.v = 1;
   }
 
   /** Order complete: pull away down the road. */

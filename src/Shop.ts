@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  BAL, hireCost, hireMax, PRODUCTS, priceOf, SHOPS, UPGRADES, upgradeCost,
+  BAL, hireCost, hireMax, MACHINE_PRICE, PRODUCTS, priceOf, SHOPS, UPGRADES, upgradeCost,
   type HireDef, type HireId, type ProductKind, type ShopDef, type ShopId, type UnlockDef, type UpgradeId,
 } from './config/balance';
 import { buffAmount } from './config/city';
@@ -23,13 +23,15 @@ import { isComplete, orderTotal, remaining, type Order } from './systems/Order';
 import { fmtMoney } from './ui/Hud';
 import { TR } from './ui/strings.tr';
 import { buildShopBuilding, type LevelRefs } from './world/Level';
-import { BIN_POS, HR_POS, OFFICE_POS, SPIT_POS, STAFF_ENTRY, STAFF_HOMES, TABLE_POS, WORLD } from './world/layout';
+import { BIN_POS, EXTRA_MACHINE_SLOTS, HR_POS, MACHINE_SLOTS, OFFICE_POS, STAFF_ENTRY, STAFF_HOMES, TABLE_POS, WORLD } from './world/layout';
 
 export interface Carrier {
   stack: ItemStack;
   accepts: Set<ItemKind>;
   cd: number;
   isPlayer: boolean;
+  /** Staff only pick up what they set out to fetch (null: nothing); the player takes anything. */
+  wants?: ItemKind | null;
 }
 
 /** Share of a machine's top output that actually sells, for income estimates. */
@@ -105,6 +107,7 @@ export class Shop {
       const def = this.def.unlocks.find((u) => u.id === uid);
       if (def) this.applyUnlock(def, false);
     }
+    for (const m of this.ss.machines ?? []) this.addProducer(m.slot, m.product);
     for (const h of this.def.hires) for (let i = 0; i < this.hireCount(h.id); i++) this.spawnStaff(h, false);
     this.onlineOn = this.onlineActive;
     this.rebuildNav();
@@ -207,10 +210,35 @@ export class Shop {
   }
 
   private addProducer(slot: number, product: ProductKind) {
-    const [x, z] = SPIT_POS[slot];
-    const p = new Producer(x, z, product, this.root, this.scene, this.flyer);
+    const [x, z, rot] = MACHINE_SLOTS[slot];
+    const p = new Producer(x, z, product, this.root, this.scene, this.flyer, rot);
     this.producers.push(p);
     return p;
+  }
+
+  // ---------- extra machines ----------
+
+  /** Spare kitchen slots still free for extra machines. */
+  freeMachineSlots() {
+    const used = new Set((this.ss.machines ?? []).map((m) => m.slot));
+    return EXTRA_MACHINE_SLOTS.filter((s) => !used.has(s));
+  }
+
+  /** Products that can get an extra machine: those the shop already makes. */
+  machineProducts() { return this.availableProducts(); }
+
+  buyMachine(kind: ProductKind) {
+    const slot = this.freeMachineSlots()[0];
+    const cost = MACHINE_PRICE[kind];
+    if (slot === undefined || this.w.data.money < cost || !this.availableProducts().includes(kind)) return;
+    this.w.data.money -= cost;
+    (this.ss.machines ??= []).push({ product: kind, slot });
+    const p = this.addProducer(slot, kind);
+    this.rebuildNav();
+    this.w.celebrate(p.group, this.toWorld(p.zone));
+    this.w.hud.toast(TR.machineAdded(TR.machine[kind]));
+    this.w.panel.render();
+    writeSave(this.w.data);
   }
 
   /** Products customers can order now: those with a machine installed. */
@@ -473,6 +501,7 @@ export class Shop {
     const st = c.stack;
     for (const m of this.producers) {
       if (!m.tray.count || !c.accepts.has(m.product) || !st.canAccept(m.product) || dist2(p, m.zone) > 1.1 * 1.1) continue;
+      if (c.wants !== undefined && c.wants !== m.product) continue;
       transfer(m.tray, st);
       c.cd = BAL.transferInterval;
       if (c.isPlayer) this.sfx.play('pickup', 1 + st.count * 0.04);
@@ -504,6 +533,20 @@ export class Shop {
       c.cd = BAL.transferInterval;
       if (c.isPlayer) this.sfx.play('trash');
     }
+  }
+
+  /** Items of `kind` still owed to everyone queuing (at one counter, or all). */
+  queueDemand(kind: ProductKind, at?: Counter) {
+    let n = 0;
+    for (const k of at ? [at] : this.counters) {
+      for (const q of k.queue) for (const [kk, left] of remaining(q.order, q.got)) if (kk === kind) n += left;
+    }
+    return n;
+  }
+
+  /** Items of `kind` ready on the counter(s). */
+  counterStock(kind: ProductKind, at?: Counter) {
+    return (at ? [at] : this.counters).reduce((n, k) => n + (k.stocks.get(kind)?.count ?? 0), 0);
   }
 
   /** Desk the player (local position) is standing at, if any. */

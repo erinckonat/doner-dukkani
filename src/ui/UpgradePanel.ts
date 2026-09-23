@@ -1,4 +1,4 @@
-import { hireCost, hireMax, HR_UPGRADES, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type UpgradeId } from '../config/balance';
+import { hireCost, hireMax, HR_UPGRADES, MACHINE_PRICE, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type ProductKind, type UpgradeId } from '../config/balance';
 import type { Game } from '../Game';
 import type { Shop } from '../Shop';
 import type { DeskKind } from '../stations/Props';
@@ -24,7 +24,8 @@ export class UpgradePanel {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-id]');
       if (!btn) return;
       if (!this.s) return;
-      if (btn.dataset.kind === 'hire') this.s.hire(btn.dataset.id as HireId);
+      if (btn.dataset.kind === 'machine') this.s.buyMachine(btn.dataset.id as ProductKind);
+      else if (btn.dataset.kind === 'hire') this.s.hire(btn.dataset.id as HireId);
       else this.s.buyUpgrade(btn.dataset.id as UpgradeId);
     });
   }
@@ -99,10 +100,27 @@ export class UpgradePanel {
     </li>`;
   }
 
+  private machineRows(s: Shop) {
+    const total = s.producers.length + s.freeMachineSlots().length;
+    const full = s.freeMachineSlots().length === 0;
+    const rows = s.machineProducts().map((kind) => {
+      const cost = MACHINE_PRICE[kind];
+      const have = s.producers.filter((p) => p.product === kind).length;
+      return `<li class="upg">
+        <div class="upg-info">
+          <h3>${TR.addMachine(TR.machine[kind])} <span class="count">${TR.machineCount(have)}</span></h3>
+          <p>${TR.machineDesc}</p>
+        </div>
+        <button class="buy" data-kind="machine" data-id="${kind}" ${full || this.g.money < cost ? 'disabled' : ''}>${full ? TR.noRoom : fmtMoney(cost)}</button>
+      </li>`;
+    }).join('');
+    return `<li class="section">${TR.kitchenSection(s.producers.length, total)}</li>${rows}`;
+  }
+
   render() {
     if (!this.s) return;
     const html = this.kind === 'office'
-      ? OFFICE_UPGRADES.map((id) => this.upgradeRow(id)).join('')
+      ? OFFICE_UPGRADES.map((id) => this.upgradeRow(id)).join('') + this.machineRows(this.s)
       : this.s.def.hires.map((h) => this.hireRow(h)).join('')
         + `<li class="section">${TR.staffSection}</li>`
         + HR_UPGRADES.map((id) => this.upgradeRow(id)).join('');

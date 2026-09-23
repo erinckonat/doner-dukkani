@@ -71,9 +71,10 @@ export class Producer {
   private time = Math.random() * 10;
 
   /** Built into `root` (the shop); finished items start life in the world `scene`. */
-  constructor(x: number, z: number, public product: ProductKind, root: THREE.Object3D, private scene: THREE.Scene, flyer: Flyer) {
+  constructor(x: number, z: number, public product: ProductKind, root: THREE.Object3D, private scene: THREE.Scene, flyer: Flyer, rotY = 0) {
     const g = this.group;
     g.position.set(x, 0, z);
+    g.rotation.y = rotY;
     g.add(at(box(1.5, 0.9, 1.1, C.steel), 0, 0.45, 0));
     g.add(at(box(1.54, 0.06, 1.14, C.steelDark), 0, 0.92, 0));
     this.moving = buildMachine(product, g);
@@ -86,8 +87,14 @@ export class Producer {
 
     const def = PRODUCTS[product];
     this.tray = new ItemStack(trayAnchor, flyer, () => def.trayMax, gridLayout(2, 1, 0.42, 0));
-    this.zone = new THREE.Vector3(x, 0, z + SPIT_ZONE_DZ);
-    this.rect = { x0: x - 0.75, x1: x + 0.75, z0: z - 0.55, z1: z + 1.05 };
+    // The machine faces local +z: its pickup spot is out in front, its footprint turns with it.
+    const fwd = new THREE.Vector3(Math.sin(rotY), 0, Math.cos(rotY));
+    this.zone = new THREE.Vector3(x, 0, z).addScaledVector(fwd, SPIT_ZONE_DZ);
+    const facingZ = Math.abs(fwd.z) > 0.5;
+    const [back, front, half] = [0.55, 1.05, 0.75];
+    this.rect = facingZ
+      ? { x0: x - half, x1: x + half, z0: z - (fwd.z > 0 ? back : front), z1: z + (fwd.z > 0 ? front : back) }
+      : { x0: x - (fwd.x > 0 ? back : front), x1: x + (fwd.x > 0 ? front : back), z0: z - half, z1: z + half };
   }
 
   update(dt: number) {
