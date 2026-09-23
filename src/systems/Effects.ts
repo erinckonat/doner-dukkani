@@ -41,25 +41,27 @@ export class Confetti {
   }
 }
 
-/** "+₺400" that rises and fades above where money was earned. */
+/** Text that rises and fades: "+₺400" where money was earned, or a red note. */
 export class FloatingText {
   constructor(private scene: THREE.Scene, private tweens: Tweens, private reduced: boolean) {}
 
-  spawn(at: THREE.Vector3, text: string) {
-    const { tex } = canvasTexture(256, 96, (ctx) => {
-      ctx.font = '800 64px "Baloo 2", sans-serif';
+  spawn(at: THREE.Vector3, text: string, style: 'money' | 'angry' = 'money') {
+    const angry = style === 'angry';
+    const { tex } = canvasTexture(angry ? 512 : 256, 96, (ctx) => {
+      ctx.font = `800 ${angry ? 44 : 64}px "Baloo 2", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.lineJoin = 'round';
       ctx.lineWidth = 12;
       ctx.strokeStyle = C.dark;
-      ctx.strokeText(text, 128, 52);
-      ctx.fillStyle = C.gold;
-      ctx.fillText(text, 128, 52);
+      const cx = angry ? 256 : 128;
+      ctx.strokeText(text, cx, 52);
+      ctx.fillStyle = angry ? '#F07A62' : C.gold;
+      ctx.fillText(text, cx, 52);
     });
     const material = new THREE.SpriteMaterial({ map: tex, depthWrite: false, depthTest: false, transparent: true });
     const s = new THREE.Sprite(material);
-    s.scale.set(1.6, 0.6, 1);
+    s.scale.set(angry ? 3.2 : 1.6, 0.6, 1);
     s.renderOrder = 20;
     s.position.set(at.x, at.y + 0.6, at.z);
     this.scene.add(s);

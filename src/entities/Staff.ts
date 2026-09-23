@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { ProductKind, StaffRole } from '../config/balance';
-import type { Game } from '../Game';
+import type { Shop } from '../Shop';
 import type { Counter } from '../stations/Counter';
 import type { Producer } from '../stations/Producer';
 import { ItemStack, type ItemKind } from '../systems/ItemStack';
@@ -21,10 +21,10 @@ export class Staff extends Agent {
   private think = 0;
 
   /** `from` is where they appear (the door for a fresh hire); `home` is where they wait when idle. */
-  constructor(public role: StaffRole, public counter: Counter | null, private home: THREE.Vector3, private g: Game, from?: THREE.Vector3) {
+  constructor(public role: StaffRole, public counter: Counter | null, private home: THREE.Vector3, private g: Shop, from?: THREE.Vector3) {
     super({ shirt: SHIRT[role], pants: C.dark, skin: pick(LOOKS.skins), hair: pick(LOOKS.hair), hat: 'cap', hatColor: C.primary, apron: role === 'cleaner' ? C.cream : undefined });
     this.stack = new ItemStack(this.ch.hand, g.flyer, () => g.staffCap);
-    this.accepts = new Set<ItemKind>(role === 'carrier' ? g.shop.producers.map((p) => p.product) : role === 'cleaner' ? ['trash'] : []);
+    this.accepts = new Set<ItemKind>(role === 'carrier' ? g.def.producers.map((p) => p.product) : role === 'cleaner' ? ['trash'] : []);
     this.pos.copy(from ?? home);
     if (role === 'cashier' && counter) counter.staffCashier = this;
   }

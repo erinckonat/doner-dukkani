@@ -1,4 +1,5 @@
 import type { HireId, ShopId, UpgradeId } from '../config/balance';
+import type { Buffs } from '../config/city';
 
 const KEY = 'doner-dukkani-save-v1';
 
@@ -21,6 +22,8 @@ export interface SaveData extends ShopState {
   /** Shop the player is in; absent = döner. */
   shop?: ShopId;
   burger?: ShopState;
+  /** Timed boosts from the gym, barber, café and pide salon. */
+  buffs?: Buffs;
   tut: number;
   sound: boolean;
   t: number;

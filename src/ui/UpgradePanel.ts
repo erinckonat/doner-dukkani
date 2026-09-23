@@ -1,5 +1,6 @@
-import { HR_UPGRADES, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type UpgradeId } from '../config/balance';
+import { hireCost, hireMax, HR_UPGRADES, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type UpgradeId } from '../config/balance';
 import type { Game } from '../Game';
+import type { Shop } from '../Shop';
 import type { DeskKind } from '../stations/Props';
 import { fmtMoney } from './Hud';
 import { TR } from './strings.tr';
@@ -12,6 +13,8 @@ export class UpgradePanel {
   private sub = document.getElementById('panel-sub')!;
   private refreshT = 0;
   private kind: DeskKind = 'office';
+  /** The shop whose desk the player is at. */
+  private s: Shop | null = null;
   isOpen = false;
 
   constructor(private g: Game) {
@@ -20,14 +23,16 @@ export class UpgradePanel {
     this.list.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-id]');
       if (!btn) return;
-      if (btn.dataset.kind === 'hire') this.g.hire(btn.dataset.id as HireId);
-      else this.g.buyUpgrade(btn.dataset.id as UpgradeId);
+      if (!this.s) return;
+      if (btn.dataset.kind === 'hire') this.s.hire(btn.dataset.id as HireId);
+      else this.s.buyUpgrade(btn.dataset.id as UpgradeId);
     });
   }
 
-  open(kind: DeskKind) {
-    if (this.isOpen && this.kind === kind) return;
+  open(kind: DeskKind, shop: Shop) {
+    if (this.isOpen && this.kind === kind && this.s === shop) return;
     this.kind = kind;
+    this.s = shop;
     this.isOpen = true;
     this.title.textContent = kind === 'office' ? TR.panelTitle : TR.hrTitle;
     this.sub.textContent = kind === 'office' ? TR.panelSub : TR.hrSub;
@@ -54,20 +59,20 @@ export class UpgradePanel {
   }
 
   private valueText(id: UpgradeId, lvl: number) {
-    const v = this.g.upgradeValue(id, lvl);
+    const v = this.s!.upgradeValue(id, lvl);
     if (id === 'price') return fmtMoney(v);
     return `${Number.isInteger(v) ? v : v.toFixed(1)} ${TR.upgrade[id].unit}`;
   }
 
   private upgradeRow(id: UpgradeId) {
     const d = UPGRADES.find((u) => u.id === id)!;
-    const lvl = this.g.lvl(id);
+    const lvl = this.s!.lvl(id);
     const maxed = lvl >= d.max;
     const cost = upgradeCost(d, lvl);
     const next = maxed ? '' : ` → <b>${this.valueText(id, lvl + 1)}</b>`;
     return `<li class="upg">
       <div class="upg-info">
-        <h3>${id === 'price' ? TR.priceName[this.g.shop.id] : TR.upgrade[id].name}</h3>
+        <h3>${id === 'price' ? TR.priceName[this.s!.id] : TR.upgrade[id].name}</h3>
         <p>${this.valueText(id, lvl)}${next}</p>
         ${this.pips(lvl, d.max, `Seviye ${lvl}/${d.max}`)}
       </div>
@@ -76,27 +81,29 @@ export class UpgradePanel {
   }
 
   private hireRow(h: HireDef) {
-    const n = this.g.hireCount(h.id);
-    const max = h.costs.length;
-    const locked = !!h.requires && !this.g.ss.unlocked.includes(h.requires);
+    const n = this.s!.hireCount(h.id);
+    const max = hireMax(h);
+    const open = max > h.costs.length; // no fixed team size: show the headcount, not pips
+    const locked = !!h.requires && !this.s!.ss.unlocked.includes(h.requires);
     const full = n >= max;
-    const cost = h.costs[n];
+    const cost = hireCost(h, n);
     const label = locked ? TR.needsWindow : full ? TR.hired : `${TR.hireBtn}<small>${fmtMoney(cost)}</small>`;
     const disabled = locked || full || this.g.money < cost;
     return `<li class="upg hire">
       <div class="upg-info">
-        <h3>${TR.hire[h.id].name} <span class="count">${TR.staffCount(n, max)}</span></h3>
+        <h3>${TR.hire[h.id].name} <span class="count">${open ? TR.staffCountOpen(n) : TR.staffCount(n, max)}</span></h3>
         <p>${TR.hire[h.id].desc}</p>
-        ${this.pips(n, max, TR.staffCount(n, max))}
+        ${open ? '' : this.pips(n, max, TR.staffCount(n, max))}
       </div>
       <button class="buy ${locked ? 'locked' : ''}" data-kind="hire" data-id="${h.id}" ${disabled ? 'disabled' : ''}>${label}</button>
     </li>`;
   }
 
   render() {
+    if (!this.s) return;
     const html = this.kind === 'office'
       ? OFFICE_UPGRADES.map((id) => this.upgradeRow(id)).join('')
-      : this.g.shop.hires.map((h) => this.hireRow(h)).join('')
+      : this.s.def.hires.map((h) => this.hireRow(h)).join('')
         + `<li class="section">${TR.staffSection}</li>`
         + HR_UPGRADES.map((id) => this.upgradeRow(id)).join('');
     if (html === this.list.innerHTML) return;

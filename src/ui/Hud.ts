@@ -11,6 +11,8 @@ export class Hud {
   private progLabel = $('prog-label');
   private hint = $('hint');
   private toastEl = $('toast');
+  private buffsEl = $('buffs');
+  private buffKey = '';
   private soundBtn = $<HTMLButtonElement>('sound-btn');
   private last = -1;
   private pulseAt = 0;
@@ -54,6 +56,17 @@ export class Hud {
     this.hintText = t;
     this.hint.textContent = t;
     this.hint.hidden = !t;
+  }
+
+  /** Active boosts as chips under the money: label and time left (m:ss). */
+  setBuffs(list: { label: string; secs: number }[]) {
+    const html = list.map((b) => {
+      const t = `${Math.floor(b.secs / 60)}:${String(Math.floor(b.secs % 60)).padStart(2, '0')}`;
+      return `<span class="buff">${b.label}<small>${t}</small></span>`;
+    }).join('');
+    if (html === this.buffKey) return;
+    this.buffKey = html;
+    this.buffsEl.innerHTML = html;
   }
 
   toast(msg: string) {

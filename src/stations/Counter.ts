@@ -61,7 +61,7 @@ export class Counter {
   playerHere = false;
   serveT = 0;
 
-  constructor(public def: CounterDef, products: ProductKind[], accent: string, scene: THREE.Scene, flyer: Flyer) {
+  constructor(public def: CounterDef, products: ProductKind[], accent: string, scene: THREE.Object3D, flyer: Flyer) {
     const main = products[0];
     const g = this.group;
     g.position.set(def.x, 0, def.z);

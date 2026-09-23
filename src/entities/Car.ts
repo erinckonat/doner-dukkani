@@ -1,23 +1,28 @@
 import * as THREE from 'three';
 import { BAL } from '../config/balance';
-import type { Flyer } from '../core/Flyer';
 import type { Nav } from '../core/Nav';
+import type { Shop } from '../Shop';
 import type { Counter, QueueMember } from '../stations/Counter';
 import { ItemStack } from '../systems/ItemStack';
-import { remaining, type Order } from '../systems/Order';
+import { orderTotal, remaining, type Order } from '../systems/Order';
 import { at, box, C, cyl, mat } from '../world/Assets';
-import { DRIVE_ROAD } from '../world/layout';
+import { CITY, DRIVE_ROAD } from '../world/layout';
 import { LOOKS, pick } from './Character';
+import { makeAngryEmote } from './Emote';
 import { OrderBubble } from './OrderBubble';
 
 const PAINT = ['#B8473A', '#3F6E8C', '#E0B04A', '#5E8C5A', '#D9D2C5', '#4A4550', '#8C5A7A'];
 const TOP_SPEED = 9;
 
-export type CarState = 'queue' | 'leaving';
+export type CarState = 'queue' | 'leaving' | 'street';
+
+/** How far along the high street (local x) a departing car drives before it's gone. */
+const STREET_END = 70;
 
 /**
  * Drive-thru customer. Drives along the side road heading +z, so the driver's
- * (left-hand) window faces the shop's takeaway window at +x.
+ * (left-hand) window faces the shop's takeaway window at +x, then turns onto the
+ * high street and drives off.
  */
 export class Car implements QueueMember {
   root = new THREE.Group();
@@ -31,8 +36,9 @@ export class Car implements QueueMember {
   private wheels: THREE.Object3D[] = [];
   private window = new THREE.Object3D();
   private bubble = new OrderBubble();
+  private emote = makeAngryEmote(2.4);
 
-  constructor(private counter: Counter, scene: THREE.Scene, flyer: Flyer, public order: Order) {
+  constructor(private counter: Counter, private shop: Shop, public order: Order) {
     const paint = pick(PAINT);
     const r = this.root;
     r.add(at(box(1.7, 0.55, 3.2, paint), 0, 0.55, 0));
@@ -68,12 +74,12 @@ export class Car implements QueueMember {
     this.window.position.set(0.9, 1.05, 0.05);
     r.add(this.window);
     this.bubble.sprite.position.set(0.4, 2.2, 0);
-    r.add(this.bubble.sprite);
+    r.add(this.bubble.sprite, this.emote);
 
-    this.stack = new ItemStack(this.window, flyer, () => 99, undefined, true);
+    this.stack = new ItemStack(this.window, shop.flyer, () => 99, undefined, true);
     r.position.set(DRIVE_ROAD.laneX, 0, DRIVE_ROAD.z0);
     this.targetZ = r.position.z;
-    scene.add(r);
+    shop.root.add(r);
   }
 
   get pos() { return this.root.position; }
@@ -83,9 +89,12 @@ export class Car implements QueueMember {
     this.targetZ = t.z;
   }
 
+  /** Move forward along the way the car is facing. */
   private drive(dt: number, speed: number) {
-    this.root.position.z += speed * dt;
-    for (const w of this.wheels) w.rotation.x += (speed * dt) / 0.32;
+    const d = speed * dt;
+    if (this.state === 'street') this.root.position.x += d;
+    else this.root.position.z += d;
+    for (const w of this.wheels) w.rotation.x += d / 0.32;
   }
 
   update(dt: number) {
@@ -95,15 +104,23 @@ export class Car implements QueueMember {
       const left = this.targetZ - this.root.position.z;
       if (left > 0.001) this.drive(dt, Math.min(left / dt, Math.max(1, Math.min(TOP_SPEED, left * 1.6))));
       const front = this.counter.queue[0] === this && this.arrived;
-      if (front) {
-        this.waitT += dt;
-        this.bubble.show(remaining(this.order, this.got), this.waitT > BAL.angryAfter);
-      } else this.bubble.hide();
+      if (this.arrived) this.waitT += dt;
+      const angry = this.waitT > BAL.angryAfter;
+      if (front) this.bubble.show(remaining(this.order, this.got), angry);
+      else this.bubble.hide();
+      this.emote.visible = angry && !front;
+      if (this.waitT > BAL.giveUpAfter && orderTotal(this.got) === 0) this.giveUp();
       return;
     }
     this.v = Math.min(TOP_SPEED, this.v + dt * 5);
     this.drive(dt, this.v);
-    if (this.root.position.z > DRIVE_ROAD.z1) {
+    // At the high street, turn right into the near lane.
+    if (this.state === 'leaving' && this.root.position.z >= CITY.road.northLane) {
+      this.root.position.z = CITY.road.northLane;
+      this.root.rotation.y = Math.PI / 2;
+      this.state = 'street';
+    }
+    if (this.state === 'street' && this.root.position.x > STREET_END) {
       this.stack.clear();
       this.bubble.dispose();
       this.root.removeFromParent();
@@ -111,9 +128,22 @@ export class Car implements QueueMember {
     }
   }
 
+  /** Fed up with the queue: pull out and drive off without buying. */
+  private giveUp() {
+    const head = new THREE.Vector3();
+    this.root.getWorldPosition(head);
+    head.y = 2.6;
+    this.shop.gaveUp(this, head);
+    this.bubble.hide();
+    this.emote.visible = true;
+    this.state = 'leaving';
+    this.v = 1;
+  }
+
   /** Order complete: pull away down the road. */
   served() {
     this.bubble.hide();
+    this.emote.visible = false;
     this.state = 'leaving';
     this.v = 1;
   }

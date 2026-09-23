@@ -22,7 +22,7 @@ export class UnlockTile {
   private tex: THREE.CanvasTexture;
   private shown = -1;
 
-  constructor(public def: TileDef, public paid: number, scene: THREE.Scene) {
+  constructor(public def: TileDef, public paid: number, scene: THREE.Object3D) {
     const { tex, ctx } = canvasTexture(SIZE, SIZE, () => {});
     this.ctx = ctx;
     this.tex = tex;

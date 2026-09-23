@@ -70,7 +70,8 @@ export class Producer {
   private t = 0;
   private time = Math.random() * 10;
 
-  constructor(x: number, z: number, public product: ProductKind, private scene: THREE.Scene, flyer: Flyer) {
+  /** Built into `root` (the shop); finished items start life in the world `scene`. */
+  constructor(x: number, z: number, public product: ProductKind, root: THREE.Object3D, private scene: THREE.Scene, flyer: Flyer) {
     const g = this.group;
     g.position.set(x, 0, z);
     g.add(at(box(1.5, 0.9, 1.1, C.steel), 0, 0.45, 0));
@@ -81,7 +82,7 @@ export class Producer {
     g.add(trayAnchor);
     this.spawn.position.set(0, 1.35, 0.4);
     g.add(this.spawn);
-    scene.add(g);
+    root.add(g);
 
     const def = PRODUCTS[product];
     this.tray = new ItemStack(trayAnchor, flyer, () => def.trayMax, gridLayout(2, 1, 0.42, 0));

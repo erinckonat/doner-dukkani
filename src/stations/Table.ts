@@ -21,7 +21,7 @@ export class Table {
   access: THREE.Vector3;
   rect: Rect;
 
-  constructor(x: number, z: number, scene: THREE.Scene, flyer: Flyer, chair: string = C.primary, chairDark: string = C.primaryDark) {
+  constructor(x: number, z: number, scene: THREE.Object3D, flyer: Flyer, chair: string = C.primary, chairDark: string = C.primaryDark) {
     const g = this.group;
     g.position.set(x, 0, z);
     g.add(at(cyl(0.62, 0.62, 0.08, 8, C.woodLight), 0, 0.78, 0));

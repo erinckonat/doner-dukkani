@@ -1,18 +1,19 @@
 import * as THREE from 'three';
-import type { Game } from '../Game';
+import type { Shop } from '../Shop';
 import type { Counter } from '../stations/Counter';
+import { BAL } from '../config/balance';
 import { ItemStack } from '../systems/ItemStack';
-import { remaining, type Order } from '../systems/Order';
+import { orderTotal, remaining, type Order } from '../systems/Order';
 import { at, box, C, cyl, mat } from '../world/Assets';
 import { COURIER_LANE_Z, COURIER_PARK_X } from '../world/layout';
 import { Agent } from './Agent';
 import { LOOKS, pick } from './Character';
+import { makeAngryEmote } from './Emote';
 import { OrderBubble } from './OrderBubble';
 
 const ROAD_START = -42;
 const ROAD_END = 42;
 const RIDE_SPEED = 11;
-const ANGRY_AFTER = 25;
 
 export const COURIER_COLOR = '#3E7C6B';
 
@@ -52,12 +53,14 @@ export class Courier extends Agent {
   got: Order = {};
   waitT = 0;
   dead = false;
+  private cancelled = false;
   private bike: THREE.Group;
   private wheels: THREE.Group[];
   private bikeV = RIDE_SPEED;
   private bubble = new OrderBubble(COURIER_COLOR);
+  private emote = makeAngryEmote(2.3);
 
-  constructor(private g: Game, private counter: Counter, public order: Order) {
+  constructor(private g: Shop, private counter: Counter, public order: Order) {
     super({ shirt: COURIER_COLOR, pants: C.dark, skin: pick(LOOKS.skins), hat: 'cap', hatColor: COURIER_COLOR });
     this.speed = 2.8;
     // Insulated delivery bag on the back.
@@ -68,11 +71,11 @@ export class Courier extends Agent {
     this.bike = bike;
     this.wheels = wheels;
     bike.position.set(ROAD_START, 0, COURIER_LANE_Z);
-    g.scene.add(bike);
+    g.root.add(bike);
     this.mount();
 
     this.bubble.sprite.position.y = 2.35;
-    this.ch.root.add(this.bubble.sprite);
+    this.ch.root.add(this.bubble.sprite, this.emote);
   }
 
   private mount() {
@@ -97,7 +100,7 @@ export class Courier extends Agent {
         this.ride(dt);
         if (this.bike.position.x >= COURIER_PARK_X) {
           this.bike.position.x = COURIER_PARK_X;
-          this.g.scene.attach(this.ch.root);
+          this.g.root.attach(this.ch.root);
           this.ch.sitting = false;
           this.pos.set(COURIER_PARK_X, 0, COURIER_LANE_Z - 0.8);
           this.pos.y = 0;
@@ -118,10 +121,13 @@ export class Courier extends Agent {
         if (this.arrived) {
           const [dx, dz] = this.counter.def.dir;
           this.ch.face(-dx, -dz, dt);
-          if (front) this.waitT += dt;
+          this.waitT += dt;
         }
-        if (front && this.arrived) this.bubble.show(remaining(this.order, this.got), this.waitT > ANGRY_AFTER);
+        const angry = this.waitT > BAL.angryAfter;
+        if (front && this.arrived) this.bubble.show(remaining(this.order, this.got), angry);
         else this.bubble.hide();
+        this.emote.visible = angry && !(front && this.arrived);
+        if (this.waitT > BAL.giveUpAfter && orderTotal(this.got) === 0) this.giveUp();
         break;
       }
       case 'toBike':
@@ -143,14 +149,28 @@ export class Courier extends Agent {
           this.bike.removeFromParent();
           this.bubble.dispose();
           this.dead = true;
-          this.g.onlineDelivered(this);
+          if (!this.cancelled) this.g.onlineDelivered(this);
         }
         break;
     }
   }
 
-  /** Called by the game when the whole order has been handed over. */
+  /** Fed up: rides off without the order (it's cancelled, nobody pays). */
+  private giveUp() {
+    const head = new THREE.Vector3();
+    this.ch.root.getWorldPosition(head);
+    head.y = 2.4;
+    this.g.gaveUp(this, head);
+    this.bubble.hide();
+    this.emote.visible = true;
+    this.cancelled = true;
+    this.state = 'toBike';
+    this.goTo(this.g.nav, new THREE.Vector3(COURIER_PARK_X, 0, COURIER_LANE_Z - 0.8));
+  }
+
+  /** Called by the shop when the whole order has been handed over. */
   collected() {
+    this.emote.visible = false;
     this.bubble.hide();
     this.state = 'toBike';
     this.goTo(this.g.nav, new THREE.Vector3(COURIER_PARK_X, 0, COURIER_LANE_Z - 0.8));

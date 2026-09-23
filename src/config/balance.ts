@@ -23,7 +23,10 @@ export const BAL = {
   eatTime: 5.5,
   dineChance: 0.65,
   seatWaitTimeout: 14,
-  angryAfter: 18,
+  /** Seconds in the queue before a customer gets visibly annoyed… */
+  angryAfter: 20,
+  /** …and before they walk out without buying, if nobody has started serving them. */
+  giveUpAfter: 60,
   maxCustomers: 30,
   maxOrder: 3,
   customerSpeed: 2.4,
@@ -38,8 +41,10 @@ export const BAL = {
     /** Online orders start coming in once this unlock is bought. */
     startsAfter: 'office',
   },
-  offlineCapSec: 2 * 60 * 60,
-  offlineRate: 0.25,
+  /** While the game is closed, staffed shops keep earning for up to this long… */
+  offlineCapSec: 8 * 60 * 60,
+  /** …at this share of their normal rate (nobody is there to help the staff). */
+  offlineRate: 0.35,
   /** Share of a shop's staffed income it keeps earning while the player is in the other shop. */
   idleRate: 0.35,
 };
@@ -106,12 +111,17 @@ export type HireId = 'cashier' | 'carrier' | 'cleaner' | 'cashierWindow';
 export interface HireDef {
   id: HireId;
   role: StaffRole;
-  /** Price of each successive hire; its length is the maximum headcount. */
+  /** Price of each successive hire; its length is the headcount unless `max` says otherwise. */
   costs: number[];
+  /** Headcount limit when more than `costs` lists; later hires cost the last price. */
+  max?: number;
   counter?: number;
   /** Unlock id that must be bought before this hire is offered. */
   requires?: string;
 }
+
+export const hireMax = (h: HireDef) => h.max ?? h.costs.length;
+export const hireCost = (h: HireDef, n: number) => h.costs[Math.min(n, h.costs.length - 1)];
 
 /** A kitchen machine on one of the three back-wall slots (SPIT_POS). */
 export interface ProducerDef {
@@ -155,7 +165,8 @@ const driveWindow = (cost: number): UnlockDef => ({ id: 'window', kind: 'window'
 /** Staff hired at the HR desk, in the order the panel lists them. */
 const STAFF: HireDef[] = [
   { id: 'cashier', role: 'cashier', costs: [14000], counter: 0 },
-  { id: 'carrier', role: 'carrier', costs: [14000, 21000, 28000] },
+  // As many waiters as you like: after the third, each costs a full month's wage.
+  { id: 'carrier', role: 'carrier', costs: [14000, 21000, 28000], max: 30 },
   { id: 'cleaner', role: 'cleaner', costs: [14000, 21000] },
   { id: 'cashierWindow', role: 'cashier', costs: [28000], counter: 1, requires: 'window' },
 ];

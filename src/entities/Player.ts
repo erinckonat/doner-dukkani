@@ -1,7 +1,7 @@
 import type { Flyer } from '../core/Flyer';
 import type { Rect } from '../core/Nav';
 import { ItemStack, type ItemKind } from '../systems/ItemStack';
-import { WORLD } from '../world/layout';
+import { CITY } from '../world/layout';
 import { Character } from './Character';
 
 const R = 0.32;
@@ -9,7 +9,8 @@ const R = 0.32;
 export class Player {
   ch = new Character({ shirt: '#C8412B', pants: '#2A1E18', skin: '#E0AC80', hair: '#2A1E18', hat: 'chef', apron: '#FBF6EC' });
   stack: ItemStack;
-  accepts = new Set<ItemKind>(['doner', 'trash']);
+  /** The player can carry any product (one kind at a time) and trash. */
+  accepts = new Set<ItemKind>(['doner', 'burger', 'fries', 'shake', 'trash']);
   cd = 0;
   isPlayer = true;
   moving = false;
@@ -47,8 +48,8 @@ export class Player {
         }
       }
     }
-    p.x = Math.max(WORLD.minX + R, Math.min(WORLD.maxX - R, p.x));
-    p.z = Math.max(WORLD.minZ + R, Math.min(WORLD.maxZ - R, p.z));
+    p.x = Math.max(CITY.minX + R, Math.min(CITY.maxX - R, p.x));
+    p.z = Math.max(CITY.minZ + R, Math.min(CITY.maxZ - R, p.z));
 
     const mag = Math.hypot(move.x, move.z);
     this.moving = mag > 0;

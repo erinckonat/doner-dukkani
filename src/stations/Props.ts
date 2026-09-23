@@ -10,7 +10,7 @@ export class TrashBin {
   zone: THREE.Vector3;
   rect: Rect;
 
-  constructor([x, z]: [number, number], scene: THREE.Scene) {
+  constructor([x, z]: [number, number], scene: THREE.Object3D) {
     this.group.position.set(x, 0, z);
     this.group.add(at(cyl(0.36, 0.3, 0.85, 8, '#5B6B4E'), 0, 0.43, 0));
     this.group.add(at(cyl(0.4, 0.4, 0.06, 8, '#46543C'), 0, 0.88, 0));
@@ -32,7 +32,7 @@ export class Desk {
   zone: THREE.Vector3;
   rect: Rect;
 
-  constructor([x, z]: [number, number], scene: THREE.Scene, public kind: DeskKind) {
+  constructor([x, z]: [number, number], scene: THREE.Object3D, public kind: DeskKind) {
     const accent = kind === 'office' ? C.gold : C.primary;
     const g = this.group;
     g.position.set(x, 0, z);
