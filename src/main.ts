@@ -1,6 +1,8 @@
 import './style.css';
-import { CloudSave } from './core/CloudSave';
+import { Account } from './core/Account';
 import { loadSave, onSave } from './core/Save';
+import { claudeBackend, SaveSync, type SaveBackend } from './core/SaveSync';
+import { guestMode, showAuth } from './ui/AuthScreen';
 import { Game } from './Game';
 
 async function boot() {
@@ -11,9 +13,19 @@ async function boot() {
     document.fonts.load('700 16px "Nunito"'),
   ]);
   await Promise.race([fonts, new Promise((r) => setTimeout(r, 2500))]);
-  // Inside claude.ai the save follows the account across devices; elsewhere it stays local.
-  const cloud = await CloudSave.connect();
-  let save = cloud ? await cloud.resolve(loadSave()) : undefined;
+  // The save follows the player's account: the claude.ai one inside claude.ai, or an
+  // email account when served by the game server. Elsewhere it stays on this device.
+  let backend: SaveBackend | null = await claudeBackend();
+  let account: string | null = null;
+  if (!backend) {
+    account = await Account.detect();
+    if (account === '' && !guestMode.get()) {
+      const r = await showAuth();
+      if (r !== 'guest') account = r.email;
+    }
+    if (account) backend = Account.backend();
+  }
+  let save = backend ? await new SaveSync(backend).resolve(loadSave()) : undefined;
   // Dev server only: pick up a hand-corrected save once, if one is waiting.
   if (import.meta.env.DEV) {
     const res = await fetch('/__save-override').catch(() => null);
@@ -22,6 +34,7 @@ async function boot() {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const game = new Game(canvas, save);
   game.start();
+  game.savePanel.setAccount(account);
   // Dev server only: hand the local save to the dev server so it can seed the published version.
   if (import.meta.env.DEV) {
     const post = (d: unknown) => void fetch('/__save', { method: 'POST', body: JSON.stringify(d) }).catch(() => {});

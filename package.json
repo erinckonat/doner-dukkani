@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "artifact": "npm run build && node scripts/make-artifact.mjs",
-    "deploy": "sh scripts/deploy-pages.sh"
+    "deploy": "sh scripts/deploy-pages.sh",
+    "deploy:server": "sh scripts/deploy-server.sh"
   },
   "dependencies": {
     "three": "^0.186.0"

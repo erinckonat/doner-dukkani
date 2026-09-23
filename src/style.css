@@ -248,6 +248,143 @@ button:focus-visible {
 
 #save-panel .panel { max-height: 80dvh; }
 
+/* ---------- Sign-in ---------- */
+
+.auth {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: var(--s2);
+  background: #e8d9bf;
+  overflow-y: auto;
+}
+
+.auth[hidden] { display: none; }
+
+.auth-card {
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s4) var(--s3);
+  background: var(--cream-hi);
+  border-radius: var(--s3);
+  box-shadow: var(--shadow-float);
+}
+
+.auth-title {
+  margin: 0;
+  font: 800 40px/1.05 var(--display);
+  letter-spacing: -0.03em;
+  color: var(--primary);
+}
+
+.auth-sub {
+  margin: 0 0 var(--s2);
+  font: 600 15px/1.7 var(--body);
+  color: var(--dark-soft);
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s1);
+  padding: var(--s1);
+  margin-bottom: var(--s1);
+  background: rgba(42, 30, 24, 0.06);
+  border-radius: var(--s2);
+}
+
+.auth-tabs button {
+  height: 40px;
+  border: 0;
+  border-radius: var(--s1);
+  background: transparent;
+  color: var(--dark-soft);
+  font: 700 16px/1 var(--display);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), transform 0.12s var(--ease-out);
+}
+
+.auth-tabs button:hover { color: var(--dark); }
+.auth-tabs button:active { transform: scale(0.98); }
+.auth-tabs button[aria-selected="true"] {
+  background: var(--cream-hi);
+  color: var(--dark);
+  box-shadow: var(--shadow);
+}
+
+.auth-card label {
+  margin-top: var(--s1);
+  font: 700 14px/1.4 var(--display);
+  color: var(--dark-soft);
+}
+
+.auth-card input {
+  height: 48px;
+  padding: 0 var(--s2);
+  border: 2px solid rgba(42, 30, 24, 0.15);
+  border-radius: var(--s2);
+  background: var(--cream);
+  color: var(--dark);
+  font: 600 16px/1 var(--body);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.auth-card input:focus-visible {
+  outline: 3px solid var(--dark);
+  outline-offset: 2px;
+  border-color: var(--primary);
+}
+
+.auth-note {
+  margin: 0;
+  font: 600 13px/1.6 var(--body);
+  color: var(--dark-soft);
+}
+
+.auth-error {
+  min-height: 1.6em;
+  margin: 0;
+  font: 700 14px/1.6 var(--body);
+  color: var(--primary-deep);
+}
+
+.link-btn {
+  align-self: center;
+  padding: var(--s1);
+  border: 0;
+  background: none;
+  color: var(--dark-soft);
+  font: 700 14px/1.4 var(--body);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.link-btn:hover { color: var(--dark); }
+.link-btn:active { opacity: 0.7; }
+
+.account-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s1);
+  padding-bottom: var(--s2);
+}
+
+.account-row[hidden] { display: none; }
+
+.account-row p {
+  margin: 0;
+  font: 600 14px/1.6 var(--body);
+  color: var(--dark-soft);
+}
+
 /* ---------- Joystick ---------- */
 
 #joy {

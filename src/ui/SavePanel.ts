@@ -1,4 +1,6 @@
-import { decodeSave, encodeSave, replaceSave, type SaveData } from '../core/Save';
+import { Account } from '../core/Account';
+import { clearLocalSave, decodeSave, encodeSave, replaceSave, type SaveData } from '../core/Save';
+import { guestMode } from './AuthScreen';
 import type { Game } from '../Game';
 import { fmtMoney } from './Hud';
 import { TR } from './strings.tr';
@@ -32,6 +34,28 @@ export class SavePanel {
   }
 
   close() { this.wrap.hidden = true; }
+
+  /**
+   * Account line for the game server: null hides it (claude.ai, GitHub Pages),
+   * '' is a guest on the server, otherwise the signed-in email.
+   */
+  setAccount(email: string | null) {
+    const row = $('account-row');
+    row.hidden = email === null;
+    if (email === null) return;
+    const action = $<HTMLButtonElement>('account-action');
+    $('account-text').textContent = email ? TR.auth.signedIn(email) : TR.auth.guest;
+    action.textContent = email ? TR.auth.signOut : TR.auth.signInCta;
+    action.onclick = async () => {
+      if (email) {
+        await Account.signOut();
+        clearLocalSave();
+      } else {
+        guestMode.set(false);
+      }
+      location.reload();
+    };
+  }
 
   private say(text: string) { this.msg.textContent = text; }
 

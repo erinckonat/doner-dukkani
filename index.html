@@ -44,6 +44,25 @@
 
     <div id="joy" aria-hidden="true"><div id="joy-knob"></div></div>
 
+    <div class="auth" id="auth" hidden>
+      <form class="auth-card" id="auth-form" novalidate>
+        <h1 class="auth-title">Döner Dükkanı</h1>
+        <p class="auth-sub">Hesabınla gir, oyunun her cihazda kaldığı yerden devam etsin.</p>
+        <div class="auth-tabs" role="tablist">
+          <button type="button" role="tab" id="auth-tab-login" aria-selected="true">Giriş yap</button>
+          <button type="button" role="tab" id="auth-tab-register" aria-selected="false">Hesap aç</button>
+        </div>
+        <label for="auth-email">E-posta</label>
+        <input id="auth-email" name="email" type="email" autocomplete="email" inputmode="email" required />
+        <label for="auth-password">Şifre</label>
+        <input id="auth-password" name="password" type="password" autocomplete="current-password" minlength="8" required />
+        <p class="auth-note">En az 8 karakter. Bağlantı henüz şifreli değil; başka yerde kullandığın bir şifreyi kullanma.</p>
+        <p class="auth-error" id="auth-error" role="alert"></p>
+        <button class="buy wide" type="submit" id="auth-submit">Giriş yap</button>
+        <button class="link-btn" type="button" id="auth-guest">Hesapsız oyna (kayıt sadece bu cihazda kalır)</button>
+      </form>
+    </div>
+
     <div class="panel-wrap" id="panel" hidden>
       <section class="panel" role="dialog" aria-labelledby="panel-title">
         <header>
@@ -70,6 +89,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
           </button>
         </header>
+        <div class="account-row" id="account-row" hidden>
+          <p id="account-text"></p>
+          <button class="link-btn" id="account-action" type="button"></button>
+        </div>
         <div class="save-body">
           <button class="buy wide" id="save-copy" type="button">Kaydı kopyala</button>
           <textarea class="code" id="save-code" rows="3" readonly hidden aria-label="Kayıt kodu"></textarea>

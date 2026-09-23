@@ -85,3 +85,13 @@ export function replaceSave(data: SaveData) {
   localStorage.setItem(KEY, JSON.stringify(data));
   blocked = true;
 }
+
+/** Forget this device's copy (on sign-out, so the next account starts clean). */
+export function clearLocalSave() {
+  blocked = true;
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* nothing stored */
+  }
+}
