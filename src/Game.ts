@@ -21,6 +21,7 @@ import { Confetti, FloatingText, makeArrow } from './systems/Effects';
 import { transfer, type ItemKind, type ItemStack } from './systems/ItemStack';
 import { fmtMoney, Hud } from './ui/Hud';
 import { TR } from './ui/strings.tr';
+import { SavePanel } from './ui/SavePanel';
 import { UpgradePanel } from './ui/UpgradePanel';
 import { buildLevel, type LevelRefs } from './world/Level';
 import { BIN_POS, BURGER_GATE, HR_POS, OFFICE_POS, SPIT_POS, STAFF_ENTRY, STAFF_HOMES, START_POS, TABLE_POS, WORLD } from './world/layout';
@@ -47,6 +48,7 @@ export class Game {
   input: Input;
   hud: Hud;
   panel: UpgradePanel;
+  savePanel: SavePanel;
   data: SaveData;
   player: Player;
   spits: DonerSpit[] = [];
@@ -130,6 +132,7 @@ export class Game {
     });
     this.hud.setProgress(this.data.unlocked.length, UNLOCKS.length);
     this.panel = new UpgradePanel(this);
+    this.savePanel = new SavePanel(this);
     this.confetti = new Confetti(this.scene);
     this.floats = new FloatingText(this.scene, this.tweens, this.reduced);
     this.arrow = makeArrow();
@@ -582,7 +585,10 @@ export class Game {
   private updateDesks() {
     const desk = [this.office, this.hr].find((d) => d && dist2(this.player.pos, d.zone) < 0.8 * 0.8) ?? null;
     const kind = desk?.kind ?? null;
-    if (kind && kind !== this.deskInside) this.panel.open(kind);
+    if (kind && kind !== this.deskInside) {
+      this.savePanel.close();
+      this.panel.open(kind);
+    }
     if (!kind && this.deskInside) this.panel.close();
     this.deskInside = kind;
   }

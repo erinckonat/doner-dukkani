@@ -28,10 +28,15 @@
         <div class="bar"><i id="prog-fill"></i></div>
       </div>
 
-      <button class="icon-btn" id="sound-btn" type="button" aria-label="Sesi kapat">
-        <svg class="on" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /></svg>
-        <svg class="off" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="m22 9-6 6M16 9l6 6" /></svg>
-      </button>
+      <div class="hud-actions">
+        <button class="icon-btn" id="save-btn" type="button" aria-label="Kayıt">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l3 3v15H5z" /><path d="M8 3v5h7V3M8 21v-7h8v7" /></svg>
+        </button>
+        <button class="icon-btn" id="sound-btn" type="button" aria-label="Sesi kapat">
+          <svg class="on" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /></svg>
+          <svg class="off" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z" /><path d="m22 9-6 6M16 9l6 6" /></svg>
+        </button>
+      </div>
     </header>
 
     <p class="hint" id="hint" hidden></p>
@@ -51,6 +56,28 @@
           </button>
         </header>
         <ul id="upg-list"></ul>
+      </section>
+    </div>
+
+    <div class="panel-wrap" id="save-panel" hidden>
+      <section class="panel" role="dialog" aria-labelledby="save-title">
+        <header>
+          <div>
+            <h2 id="save-title">Kayıt</h2>
+            <p class="sub">Başka bir cihazda devam etmek için kodu kopyala, orada yapıştır.</p>
+          </div>
+          <button class="icon-btn small" id="save-close" type="button" aria-label="Kapat">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </header>
+        <div class="save-body">
+          <button class="buy wide" id="save-copy" type="button">Kaydı kopyala</button>
+          <textarea class="code" id="save-code" rows="3" readonly hidden aria-label="Kayıt kodu"></textarea>
+          <label class="field-label" for="save-input">Başka cihazdan gelen kod</label>
+          <textarea class="code" id="save-input" rows="3" placeholder="DD1-…" spellcheck="false" autocomplete="off"></textarea>
+          <p class="save-msg" id="save-msg" role="status" aria-live="polite"></p>
+          <button class="buy wide secondary" id="save-load" type="button">Kaydı yükle</button>
+        </div>
       </section>
     </div>
 

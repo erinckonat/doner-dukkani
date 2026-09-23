@@ -98,7 +98,7 @@ button:focus-visible {
   text-align: center;
 }
 
-.progress span { padding-top: 2px; }
+.progress span { padding-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .bar {
   height: 8px;
@@ -188,6 +188,65 @@ button:focus-visible {
 }
 
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+.hud-actions {
+  display: flex;
+  gap: var(--s1);
+  flex: none;
+}
+
+/* ---------- Save panel ---------- */
+
+.save-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding-top: var(--s2);
+  border-top: 1px solid rgba(200, 65, 43, 0.12);
+}
+
+.field-label {
+  margin-top: var(--s2);
+  font: 700 14px/1.4 var(--display);
+  color: var(--dark-soft);
+}
+
+.code {
+  width: 100%;
+  padding: var(--s1) var(--s2);
+  border: 2px solid rgba(42, 30, 24, 0.15);
+  border-radius: var(--s2);
+  background: var(--cream);
+  color: var(--dark);
+  font: 600 14px/1.5 ui-monospace, 'SF Mono', Menlo, monospace;
+  resize: none;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.code:focus-visible {
+  outline: 3px solid var(--dark);
+  outline-offset: 2px;
+}
+
+.save-msg {
+  min-height: 1.7em;
+  margin: 0;
+  font: 600 14px/1.7 var(--body);
+  color: var(--dark-soft);
+}
+
+.buy.wide { width: 100%; }
+
+.buy.secondary {
+  background: var(--dark);
+  box-shadow: 0 2px 0 #120c09, 0 8px 16px rgba(42, 30, 24, 0.2);
+}
+
+.buy.secondary:hover:not(:disabled) { background: var(--dark-soft); }
+
+#save-panel .panel { max-height: 80dvh; }
 
 /* ---------- Joystick ---------- */
 
@@ -334,8 +393,10 @@ button:focus-visible {
 }
 
 @media (max-width: 480px) {
+  .hud { gap: var(--s1); }
   .money { font-size: 20px; padding-right: var(--s2); }
-  .progress { flex-basis: 160px; font-size: 14px; }
+  .progress { flex-basis: 160px; min-width: 0; padding-inline: var(--s1); font-size: 14px; }
+  .hud-actions .icon-btn { width: 40px; height: 40px; }
   .hint { font-size: 16px; }
 }
 
