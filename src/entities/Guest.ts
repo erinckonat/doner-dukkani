@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BAL } from '../config/balance';
-import { STAY } from '../config/hotel';
+import { HOTEL, STAY } from '../config/hotel';
 import type { Hotel, Room } from '../Hotel';
 import { box } from '../world/Assets';
 import { Agent } from './Agent';
@@ -17,9 +17,12 @@ const SMART = ['#2E3A55', '#4A3B52', '#3E6B5A', '#6B2E2E', '#3A3F4A', '#8A6A4A',
 export class Guest extends Agent {
   state: 'queue' | 'toRoom' | 'sleep' | 'leaving' = 'queue';
   room: Room | null = null;
+  /** 0 downstairs, 1 upstairs. */
+  floor = 0;
   waitT = 0;
   dead = false;
-  private route: THREE.Vector3[] = [];
+  /** Waypoints ahead; 'lift' means ride the lift to the other floor from here. */
+  private route: (THREE.Vector3 | 'lift')[] = [];
   private timer = 0;
   private emote = makeAngryEmote(2.3);
   private suitcase = new THREE.Group();
@@ -54,10 +57,7 @@ export class Guest extends Agent {
       case 'toRoom':
       case 'leaving':
         if (!this.arrived) break;
-        if (this.route.length) {
-          this.goTo(this.h.nav, this.route.shift()!);
-          break;
-        }
+        if (this.advance()) break;
         if (this.state === 'toRoom') this.lieDown();
         else {
           this.ch.root.removeFromParent();
@@ -71,14 +71,26 @@ export class Guest extends Agent {
     }
   }
 
+  /** Head for the next waypoint (riding the lift where the route says). False when there are none left. */
+  private advance() {
+    let next = this.route.shift();
+    while (next === 'lift') {
+      this.h.ride(this);
+      next = this.route.shift();
+    }
+    if (!next) return false;
+    this.goTo(this.h.navFor(this.floor), next);
+    return true;
+  }
+
   checkIn(room: Room) {
     this.room = room;
     this.state = 'toRoom';
     this.emote.visible = false;
-    const [dx, dz] = room.def.door;
-    const [zx, zz] = room.def.zone;
-    this.route = [new THREE.Vector3(zx, 0, zz)];
-    this.goTo(this.h.nav, new THREE.Vector3(dx, 0, dz));
+    const d = room.def;
+    const inRoom = [new THREE.Vector3(d.door[0], 0, d.door[1]), new THREE.Vector3(d.zone[0], 0, d.zone[1])];
+    this.route = d.floor ? [this.h.lift.clone(), 'lift', ...inRoom] : inRoom;
+    this.advance();
   }
 
   /** Into bed: flat on the back, head on the pillow. */
@@ -86,7 +98,7 @@ export class Guest extends Agent {
     const d = this.room!.def;
     const r = this.ch.root;
     const foot = d.yaw === 0 ? 0.85 : -0.85;
-    this.pos.set(d.bed[0], 0.62, d.bed[1] + foot);
+    this.pos.set(d.bed[0], this.floor * HOTEL.floorH + 0.62, d.bed[1] + foot);
     r.rotation.order = 'YXZ';
     this.ch.setYaw(d.yaw);
     r.rotation.x = -Math.PI / 2;
@@ -101,16 +113,16 @@ export class Guest extends Agent {
     const r = this.ch.root;
     r.rotation.x = 0;
     r.rotation.order = 'XYZ';
-    this.pos.set(d.zone[0], 0, d.zone[1]);
+    this.pos.set(d.zone[0], this.floor * HOTEL.floorH, d.zone[1]);
     this.suitcase.visible = true;
     this.h.checkOut(this);
     this.room = null;
   }
 
-  leave(route: THREE.Vector3[], angry = false) {
+  leave(route: (THREE.Vector3 | 'lift')[], angry = false) {
     this.state = 'leaving';
     this.emote.visible = angry;
-    this.route = route.slice(1);
-    this.goTo(this.h.nav, route[0]);
+    this.route = route;
+    this.advance();
   }
 }

@@ -182,11 +182,16 @@ export const TR = {
     roomReady: 'Oda hazır',
     amenity: (name: string, pct: number) => `${name} açıldı! Oda fiyatları %${pct} arttı`,
     unlock: {
-      room: (i: number) => `${i >= 6 ? 'Süit' : 'Oda'} ${101 + i}`,
+      room: (num: number, suite: boolean) => `${suite ? 'Süit' : 'Oda'} ${num}`,
       desk: () => 'Personel Masası',
       buffet: () => 'Kahvaltı Büfesi',
       spa: () => 'Havuz & Spa',
+      floor: () => 'Üst Kat',
+      terrace: () => 'Teras Bar',
     },
+    lift: 'ASANSÖR',
+    floorOpened: 'Üst kat açıldı! Asansörün üstünde durup yukarı çık.',
+    upstairs: '2. Kat',
   },
   borsa: {
     title: 'Şehir Borsası',

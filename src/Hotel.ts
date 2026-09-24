@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { BAL, hireCost, hireMax, UPGRADES, upgradeCost, type HireDef, type HireId, type UpgradeId } from './config/balance';
 import { buffAmount } from './config/city';
 import {
-  AMENITY_BONUS, CHECKIN_TIME, CLEAN_TIME, HOTEL, HOTEL_HIRES, HOTEL_OPEN_COST, HOTEL_ORIGIN, HOTEL_UNLOCKS, hotelRate,
-  RECEPTION_QUEUE, ROOM_PRICE, ROOMS, STARTING_ROOMS, TOWEL_EVERY, TOWEL_TRAY, type HotelUnlock, type RoomDef,
+  AMENITY_BONUS, amenityMult, CHECKIN_TIME, CLEAN_TIME, HOTEL, HOTEL_HIRES, HOTEL_OPEN_COST, HOTEL_ORIGIN, HOTEL_UNLOCKS, hotelRate,
+  RECEPTION_QUEUE, ROOM_PRICE, ROOMS, STARTING_ROOMS, TOWEL_EVERY, TOWEL_TRAY, UPPER_FLOOR, UPPER_START, type HotelUnlock, type RoomDef,
 } from './config/hotel';
 import { Nav, type Rect } from './core/Nav';
 import { writeSave, type SaveData } from './core/Save';
@@ -24,6 +24,7 @@ export type HotelState = NonNullable<SaveData['hotel']>;
 
 export interface Room {
   def: RoomDef;
+  floor: number;
   unlocked: boolean;
   dirty: boolean;
   guest: Guest | null;
@@ -69,8 +70,16 @@ function towelDecal(size = 1.4) {
 
 export const freshHotel = (): HotelState => ({ unlocked: [], paid: {}, upg: {}, hires: {}, dirty: [] });
 
-const roomsOf = (hs: { unlocked: string[] }) =>
-  [...STARTING_ROOMS, ...HOTEL_UNLOCKS.filter((u) => u.kind === 'room' && hs.unlocked.includes(u.id)).map((u) => u.index)];
+const roomsOf = (hs: { unlocked: string[] }) => [
+  ...STARTING_ROOMS,
+  ...(hs.unlocked.includes(UPPER_FLOOR.id) ? UPPER_START : []),
+  ...HOTEL_UNLOCKS.filter((u) => u.kind === 'room' && hs.unlocked.includes(u.id)).map((u) => u.index),
+];
+
+/** Anyone who moves between the floors. */
+interface Rider { floor: number; pos: THREE.Vector3 }
+
+const H = HOTEL.floorH;
 
 /** TL/second the hotel makes while the game is closed (needs a receptionist and a housekeeper). */
 export function hotelStaffedIncome(data: SaveData) {
@@ -82,16 +91,25 @@ export function hotelStaffedIncome(data: SaveData) {
 export function hotelAssets(data: SaveData) {
   const hs = data.hotel;
   if (!hs) return 0;
-  return HOTEL_OPEN_COST + HOTEL_UNLOCKS.filter((u) => hs.unlocked.includes(u.id)).reduce((s, u) => s + u.cost, 0);
+  return HOTEL_OPEN_COST + [...HOTEL_UNLOCKS, UPPER_FLOOR].filter((u) => hs.unlocked.includes(u.id)).reduce((s, u) => s + u.cost, 0);
 }
 
 /**
- * The five-star hotel. Its own local frame (origin HOTEL_ORIGIN) and path grid,
- * which reaches out to the high-street pavement for guests arriving.
+ * The five-star hotel. Its own local frame (origin HOTEL_ORIGIN) and a path grid
+ * per floor; the ground floor's reaches out to the pavement for guests arriving.
+ * The upper floor sits a storey up (the `upper` group) and is reached by the lift.
+ * It's drawn when the player is up there, or from outside (with a facade over
+ * the ground floor); walk into the lobby and it lifts away so you can see in.
  */
 export class Hotel {
   root = new THREE.Group();
-  nav = new Nav(-14, -11, 14, 18);
+  upper = new THREE.Group();
+  navs = [new Nav(-14, -11, 14, 18), new Nav(-14, -11, 14, 18)];
+  get nav() { return this.navs[0]; }
+  navFor(floor: number) { return this.navs[floor]; }
+  /** Which floor the player is on while in the hotel. */
+  playerFloor = 0;
+  lift = v(HOTEL.lift[0], HOTEL.lift[1]);
   hs: HotelState;
   rooms: Room[] = [];
   staff: HotelStaff[] = [];
@@ -99,7 +117,7 @@ export class Hotel {
   queue: Guest[] = [];
   tiles: UnlockTile[] = [];
   hr: Desk | null = null;
-  rects: Rect[] = [];
+  rects: Rect[][] = [[], []];
   rectsVersion = 0;
   served = 0;
   readonly id = 'hotel';
@@ -107,8 +125,9 @@ export class Hotel {
   readonly oz = HOTEL_ORIGIN.z;
   def = { hires: HOTEL_HIRES };
 
-  /** Laundry tray of fresh towels and where to stand to take them. */
-  laundry: ItemStack;
+  /** Fresh towels on each floor (the laundry downstairs, a linen room upstairs) and where to take them. */
+  laundries: (ItemStack | null)[] = [null, null];
+  get laundry() { return this.laundries[0]!; }
   laundryZone = v(HOTEL.laundry[0] + 1.1, HOTEL.laundry[1]);
   /** Behind the reception desk, and where the guest at the front stands. */
   deskZone = v(HOTEL.reception[0], HOTEL.reception[1] - 1.1);
@@ -116,7 +135,9 @@ export class Hotel {
   cover: HotelStaff | null = null;
   playerAtDesk = false;
 
-  private wallRects: Rect[] = [];
+  private wallRects: Rect[][] = [[], []];
+  private liftHold = 0;
+  private liftLock = false;
   private spawnT = 2;
   private serveT = 0;
   private towelT = 0;
@@ -128,13 +149,18 @@ export class Hotel {
   constructor(public w: Game) {
     this.hs = w.data.hotel!;
     this.root.position.set(this.ox, 0, this.oz);
+    this.upper.position.y = H;
+    this.upper.visible = false;
+    this.root.add(this.upper);
     w.scene.add(this.root);
     this.buildShell();
     this.buildReception();
-    this.laundry = this.buildLaundry();
+    this.laundries[0] = this.buildLaundry(0);
+    if (this.upperBuilt) this.buildUpper();
     const open = new Set(roomsOf(this.hs));
     for (const d of ROOMS) {
       const r: Room = {
+        floor: d.floor,
         def: d, unlocked: false, dirty: false, guest: null, cleanT: 0, zone: v(d.zone[0], d.zone[1]), tidy: null, messy: null,
         towel: new ItemStack(new THREE.Object3D(), this.flyer, () => 1, gridLayout(1, 1, 0, 0)),
       };
@@ -145,6 +171,8 @@ export class Hotel {
     if (this.hs.unlocked.includes('hdesk')) this.addDesk();
     if (this.hs.unlocked.includes('buffet')) this.addBuffet();
     if (this.hs.unlocked.includes('spa')) this.addSpa();
+    if (this.upperBuilt) this.buildLift(0);
+    if (this.hs.unlocked.includes('terrace')) this.addTerraceBar();
     for (const h of HOTEL_HIRES) for (let i = 0; i < this.hireCount(h.id); i++) this.spawnStaff(h, false);
     this.rebuildNav();
     this.refreshTiles();
@@ -157,8 +185,13 @@ export class Hotel {
   toWorld(p: THREE.Vector3) { return new THREE.Vector3(p.x + this.ox, p.y, p.z + this.oz); }
   toLocal(p: THREE.Vector3) { return this.playerLocal.set(p.x - this.ox, 0, p.z - this.oz); }
 
+  get upperBuilt() { return this.hs.unlocked.includes(UPPER_FLOOR.id); }
+
+  private group(floor: number) { return floor ? this.upper : this.root; }
+
+  /** Collision for the player: the floor they're on. */
   worldRects(): Rect[] {
-    return this.rects.map((r) => ({ x0: r.x0 + this.ox, x1: r.x1 + this.ox, z0: r.z0 + this.oz, z1: r.z1 + this.oz }));
+    return this.rects[this.playerFloor].map((r) => ({ x0: r.x0 + this.ox, x1: r.x1 + this.ox, z0: r.z0 + this.oz, z1: r.z1 + this.oz }));
   }
 
   private get share() { return this.w.ownerShare('hotel'); }
@@ -167,13 +200,152 @@ export class Hotel {
 
   // ---------- building ----------
 
-  private wall(r: Rect, h: number, color: string) {
+  private wall(r: Rect, h: number, color: string, floor = 0) {
+    const g = this.group(floor);
     const m = box(r.x1 - r.x0, h, r.z1 - r.z0, color);
     m.position.set((r.x0 + r.x1) / 2, h / 2, (r.z0 + r.z1) / 2);
-    this.root.add(m);
-    this.root.add(at(box(r.x1 - r.x0 + 0.06, 0.07, r.z1 - r.z0 + 0.06, GOLD, false), m.position.x, h + 0.035, m.position.z));
-    this.wallRects.push(r);
+    g.add(m);
+    g.add(at(box(r.x1 - r.x0 + 0.06, 0.07, r.z1 - r.z0 + 0.06, GOLD, false), m.position.x, h + 0.035, m.position.z));
+    this.wallRects[floor].push(r);
     return m;
+  }
+
+  /** Room shells on one floor: carpets, corridor walls with doors, numbers. */
+  private buildRoomShells(floor: number) {
+    const g = this.group(floor);
+    const RH = 1.2;
+    const D = HOTEL.halfD;
+    const rooms = ROOMS.filter((d) => d.floor === floor);
+    for (const d of rooms) {
+      const carpet = d.suite ? '#6B3A4A' : '#3F4F6B';
+      g.add(at(plane(d.x1 - d.x0 - 0.2, d.z1 - d.z0 - 0.2, carpet, 0), (d.x0 + d.x1) / 2, 0.003, (d.z0 + d.z1) / 2));
+      this.wall({ x0: d.x0, x1: d.doorX0, z0: d.wallZ - 0.08, z1: d.wallZ + 0.08 }, RH, '#E9E1D2', floor);
+      this.wall({ x0: d.doorX1, x1: d.x1, z0: d.wallZ - 0.08, z1: d.wallZ + 0.08 }, RH, '#E9E1D2', floor);
+      const num = canvasTexture(128, 64, (ctx) => {
+        ctx.fillStyle = GOLD;
+        ctx.font = '800 44px "Baloo 2", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(d.number), 64, 36);
+      }).tex;
+      const label = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.4), new THREE.MeshBasicMaterial({ map: num, transparent: true, depthWrite: false }));
+      label.rotation.x = -Math.PI / 2;
+      // Back rooms: in the corridor beside the door; suites: just inside their door.
+      if (d.suite) label.position.set(d.door[0], 0.01, d.wallZ + 0.55);
+      else label.position.set(d.door[0] - 1.1, 0.01, d.door[1]);
+      g.add(label);
+    }
+    // Partitions: between the back rooms, and around the suites across the corridor.
+    for (const d of rooms.filter((x) => !x.suite).slice(1)) {
+      this.wall({ x0: d.x0 - 0.08, x1: d.x0 + 0.08, z0: -D, z1: -4.5 }, RH, '#E9E1D2', floor);
+    }
+    const suites = rooms.filter((x) => x.suite);
+    for (const d of suites) {
+      if (d.x0 > -HOTEL.halfW + 0.1) this.wall({ x0: d.x0 - 0.08, x1: d.x0 + 0.08, z0: -1.5, z1: 3.5 }, RH, '#E9E1D2', floor);
+    }
+    if (suites.length) this.wall({ x0: suites[0].x0, x1: HOTEL.halfW, z0: 3.42, z1: 3.58 }, RH, '#E9E1D2', floor);
+  }
+
+  /** The lift: a gold-framed door and a pad in front of it, on the given floor. */
+  private buildLift(floor: number) {
+    const g = this.group(floor);
+    const [x, z] = HOTEL.lift;
+    const bz = z - 1.05;
+    g.add(at(box(1.8, 2.5, 0.2, '#E9E1D2'), x, 1.25, bz), at(box(1.9, 0.12, 0.26, GOLD), x, 2.5, bz));
+    for (const dx of [-0.36, 0.36]) g.add(at(box(0.66, 2.0, 0.04, '#B9A77A', false), x + dx, 1.0, bz + 0.12));
+    g.add(at(box(0.3, 0.3, 0.05, NAVY, false), x, 2.25, bz + 0.13));
+    this.wallRects[floor].push({ x0: x - 0.9, x1: x + 0.9, z0: bz - 0.1, z1: bz + 0.1 });
+    const { tex } = canvasTexture(256, 256, (ctx) => {
+      ctx.beginPath();
+      ctx.arc(128, 128, 112, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(46,58,85,0.85)';
+      ctx.fill();
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = GOLD;
+      ctx.stroke();
+      ctx.fillStyle = GOLD;
+      ctx.beginPath();
+      // Up and down arrows.
+      ctx.moveTo(128, 40); ctx.lineTo(168, 88); ctx.lineTo(88, 88); ctx.closePath();
+      ctx.moveTo(128, 216); ctx.lineTo(168, 168); ctx.lineTo(88, 168); ctx.closePath();
+      ctx.fill();
+      ctx.font = '800 34px "Baloo 2", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(TR.hotel.lift, 128, 130);
+    });
+    const pad = floorDecal(tex, 1.5);
+    pad.position.set(x, 0.02, z);
+    g.add(pad);
+    return g;
+  }
+
+  /**
+   * The upper floor: slab, walls, rooms along the back and suites across, a linen
+   * room, a lounge by the lift and a terrace along the front; plus the facade that
+   * closes in the ground floor when the hotel is seen from outside.
+   */
+  private buildUpper() {
+    const g = this.upper;
+    const { halfW: W, halfD: D } = HOTEL;
+    const T = 0.3;
+    g.add(at(box(2 * W + 2 * T, 0.25, 2 * D + 2 * T, '#E4DCCB'), 0, -0.125, 0));
+    const floor = canvasTexture(128, 128, (ctx) => {
+      ctx.fillStyle = '#EFE8DA';
+      ctx.fillRect(0, 0, 128, 128);
+      ctx.strokeStyle = 'rgba(201,162,74,0.45)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, 126, 126);
+    }).tex;
+    floor.wrapS = floor.wrapT = THREE.RepeatWrapping;
+    floor.repeat.set(W, D);
+    g.add(at(plane(W * 2, D * 2, floor, 0), 0, 0.002, 0));
+    g.add(at(plane(W * 2 - 1, 1.6, NAVY, 0), 0, 0.004, -3));
+    const tr = HOTEL.terrace;
+    g.add(at(plane(tr.x1 - tr.x0 - 0.2, tr.z1 - tr.z0 - 0.2, '#B98A5A', 0), (tr.x0 + tr.x1) / 2, 0.004, (tr.z0 + tr.z1) / 2));
+
+    this.wall({ x0: -W - T, x1: W + T, z0: -D - T, z1: -D }, 2.8, '#EDE6D8', 1).castShadow = false;
+    this.wall({ x0: -W - T, x1: -W, z0: -D, z1: D }, 1.3, '#E4DCCB', 1);
+    this.wall({ x0: W, x1: W + T, z0: -D, z1: D }, 1.3, '#E4DCCB', 1);
+    // Glass balustrade along the front.
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(2 * W + 2 * T, 1.0, 0.08),
+      new THREE.MeshStandardMaterial({ color: '#BFD9E6', transparent: true, opacity: 0.35, roughness: 0.1 }));
+    glass.position.set(0, 0.5, D + T / 2);
+    g.add(glass, at(box(2 * W + 2 * T, 0.06, 0.14, GOLD, false), 0, 1.03, D + T / 2));
+    this.wallRects[1].push({ x0: -W - T, x1: W + T, z0: D, z1: D + T });
+
+    this.buildRoomShells(1);
+    this.laundries[1] = this.buildLaundry(1);
+    this.buildLift(1);
+
+    // Lounge by the lift, terrace furniture.
+    g.add(at(box(2.2, 0.45, 0.8, NAVY), -8.2, 0.22, 6.2), at(box(2.2, 0.7, 0.2, NAVY), -8.2, 0.55, 5.8));
+    g.add(at(cyl(0.45, 0.45, 0.4, 12, GOLD), -8.2, 0.2, 7.4));
+    this.wallRects[1].push({ x0: -9.3, x1: -7.1, z0: 5.7, z1: 6.65 }, { x0: -8.65, x1: -7.75, z0: 6.95, z1: 7.85 });
+    for (const x of [-2.5, 0.5]) {
+      const lounger = box(0.6, 0.25, 1.7, '#FBF8F2');
+      g.add(at(lounger, x, 0.3, 6.6));
+      this.wallRects[1].push({ x0: x - 0.3, x1: x + 0.3, z0: 5.75, z1: 7.45 });
+    }
+    for (const [x, z] of [[-W + 0.6, D - 0.6], [W - 0.6, D - 0.6], [-4.1, 4.0]] as const) {
+      g.add(at(makePlant(), x, 0, z));
+      this.wallRects[1].push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3 });
+    }
+
+    // Facade over the ground floor: seen only from outside (the group hides when you walk into the lobby).
+    const face = new THREE.Group();
+    const wallMat = '#E4DCCB';
+    const dz = D + T / 2;
+    face.add(at(box(W + HOTEL.door.x0 + T + 0.04, H, T + 0.06, wallMat), (-W - T + HOTEL.door.x0) / 2, -H / 2, dz));
+    face.add(at(box(W - HOTEL.door.x1 + T + 0.04, H, T + 0.06, wallMat), (HOTEL.door.x1 + W + T) / 2, -H / 2, dz));
+    face.add(at(box(HOTEL.door.x1 - HOTEL.door.x0, H - 2.6, T + 0.06, wallMat), 0, -(H - 2.6) / 2, dz));
+    for (const x of [-W - T / 2, W + T / 2]) face.add(at(box(T + 0.06, H, 2 * D, wallMat), x, -H / 2, 0));
+    for (let x = -W + 1.5; x < W - 1; x += 3) {
+      if (Math.abs(x) < 3) continue;
+      face.add(at(box(1.6, 1.5, 0.04, '#6F8FA8', false), x, -H + 1.7, D + T + 0.05));
+      face.add(at(box(1.7, 0.08, 0.06, GOLD, false), x, -H + 2.5, D + T + 0.05));
+    }
+    g.add(face);
   }
 
   private buildShell() {
@@ -206,32 +378,7 @@ export class Hotel {
     this.wall({ x0: HOTEL.door.x1, x1: W + T, z0: D, z1: D + T }, 0.55, '#E4DCCB');
 
     // Room walls: every room's shell stands from the start; locked ones are empty.
-    const RH = 1.2;
-    for (const d of ROOMS) {
-      const carpet = d.suite ? '#6B3A4A' : '#3F4F6B';
-      this.root.add(at(plane(d.x1 - d.x0 - 0.2, d.z1 - d.z0 - 0.2, carpet, 0), (d.x0 + d.x1) / 2, 0.003, (d.z0 + d.z1) / 2));
-      this.wall({ x0: d.x0, x1: d.doorX0, z0: d.wallZ - 0.08, z1: d.wallZ + 0.08 }, RH, '#E9E1D2');
-      this.wall({ x0: d.doorX1, x1: d.x1, z0: d.wallZ - 0.08, z1: d.wallZ + 0.08 }, RH, '#E9E1D2');
-      // Room number on the floor by the door.
-      const num = canvasTexture(128, 64, (ctx) => {
-        ctx.fillStyle = GOLD;
-        ctx.font = '800 44px "Baloo 2", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(101 + d.index), 64, 36);
-      }).tex;
-      const label = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.4), new THREE.MeshBasicMaterial({ map: num, transparent: true, depthWrite: false }));
-      label.rotation.x = -Math.PI / 2;
-      label.position.set(d.door[0] - (d.suite ? -1 : 1) * 1.1, 0.01, d.door[1]);
-      this.root.add(label);
-    }
-    for (let k = 1; k < 6; k++) {
-      const x = ROOMS[k].x0;
-      this.wall({ x0: x - 0.08, x1: x + 0.08, z0: -D, z1: -4.5 }, RH, '#E9E1D2');
-    }
-    this.wall({ x0: 4.42, x1: 4.58, z0: -1.5, z1: 3.5 }, RH, '#E9E1D2');
-    this.wall({ x0: 8.42, x1: 8.58, z0: -1.5, z1: 3.5 }, RH, '#E9E1D2');
-    this.wall({ x0: 4.5, x1: W, z0: 3.42, z1: 3.58 }, RH, '#E9E1D2');
+    this.buildRoomShells(0);
 
     // Name and five stars on the back wall.
     const sign = canvasTexture(1024, 256, (ctx) => {
@@ -268,12 +415,12 @@ export class Hotel {
     this.root.add(at(box(4.6, 0.12, 1.6, NAVY), 0, 2.45, D + 0.7));
     for (const [x, z] of [[-2.6, D + 0.6], [2.6, D + 0.6], [-W + 0.6, D - 0.6], [W - 0.6, -D + 0.6]] as const) {
       this.root.add(at(makePlant(), x, 0, z));
-      this.wallRects.push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3 });
+      this.wallRects[0].push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3 });
     }
     // Lobby sofas facing each other near the door.
     for (const z of [5.6, 8.2]) {
       this.root.add(at(box(2.2, 0.45, 0.8, NAVY), 2.6, 0.22, z), at(box(2.2, 0.7, 0.2, NAVY), 2.6, 0.55, z + (z < 7 ? -0.4 : 0.4)));
-      this.wallRects.push({ x0: 1.5, x1: 3.7, z0: z - 0.45, z1: z + 0.45 });
+      this.wallRects[0].push({ x0: 1.5, x1: 3.7, z0: z - 0.45, z1: z + 0.45 });
     }
     this.root.add(at(cyl(0.45, 0.45, 0.4, 12, GOLD), 2.6, 0.2, 6.9));
   }
@@ -287,28 +434,35 @@ export class Hotel {
     const screen = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.32, 0.03), mat(C.dark, GOLD, 0.3));
     screen.position.set(x - 0.6, 1.33, z - 0.15);
     this.root.add(screen);
-    this.wallRects.push({ x0: x - L / 2, x1: x + L / 2, z0: z - 0.4, z1: z + 0.4 });
+    this.wallRects[0].push({ x0: x - L / 2, x1: x + L / 2, z0: z - 0.4, z1: z + 0.4 });
     const d = zoneDecal('register');
     d.position.set(this.deskZone.x, 0.02, this.deskZone.z);
     this.root.add(d);
   }
 
-  private buildLaundry() {
+  /** A washer downstairs, a linen cabinet upstairs: both keep a pile of fresh towels on top. */
+  private buildLaundry(floor: number) {
     const [x, z] = HOTEL.laundry;
+    const parent = this.group(floor);
     const g = new THREE.Group();
-    g.add(at(box(1.0, 1.0, 1.0, '#F4F1EA'), 0, 0.5, 0));
-    const porthole = cyl(0.3, 0.3, 0.05, 16, '#8FB3C9', false);
-    porthole.rotation.z = Math.PI / 2;
-    g.add(at(porthole, 0.51, 0.5, 0));
-    g.add(at(box(0.04, 0.12, 0.6, GOLD, false), 0.51, 0.88, 0));
+    if (floor === 0) {
+      g.add(at(box(1.0, 1.0, 1.0, '#F4F1EA'), 0, 0.5, 0));
+      const porthole = cyl(0.3, 0.3, 0.05, 16, '#8FB3C9', false);
+      porthole.rotation.z = Math.PI / 2;
+      g.add(at(porthole, 0.51, 0.5, 0));
+      g.add(at(box(0.04, 0.12, 0.6, GOLD, false), 0.51, 0.88, 0));
+    } else {
+      g.add(at(box(1.0, 1.0, 1.0, C.woodDark), 0, 0.5, 0));
+      for (const y of [0.35, 0.7]) g.add(at(box(0.04, 0.26, 0.9, '#FBF8F2', false), 0.51, y, 0));
+    }
     g.position.set(x, 0, z);
-    this.root.add(g);
-    this.wallRects.push({ x0: x - 0.5, x1: x + 0.5, z0: z - 0.5, z1: z + 0.5 });
+    parent.add(g);
+    this.wallRects[floor].push({ x0: x - 0.5, x1: x + 0.5, z0: z - 0.5, z1: z + 0.5 });
     const anchor = at(new THREE.Object3D(), x, 1.0, z);
-    this.root.add(anchor);
+    parent.add(anchor);
     const d = towelDecal();
     d.position.set(this.laundryZone.x, 0.02, this.laundryZone.z);
-    this.root.add(d);
+    parent.add(d);
     return new ItemStack(anchor, this.flyer, () => TOWEL_TRAY, gridLayout(2, 2, 0.36, 0.26));
   }
 
@@ -354,11 +508,11 @@ export class Hotel {
       rug.position.set(bx, 0.006, bz - head * 1.7);
       g.add(rug);
     }
-    this.root.add(g);
+    this.group(d.floor).add(g);
     const zone = towelDecal(1.1);
     zone.position.set(r.zone.x, 0.02, r.zone.z);
     g.add(zone);
-    this.wallRects.push(
+    this.wallRects[d.floor].push(
       { x0: bx - bw / 2, x1: bx + bw / 2, z0: bz - 1.05, z1: bz + 1.05 },
       { x0: tx - 0.5, x1: tx + 0.5, z0: tz - 0.6, z1: tz + 0.6 },
       { x0: nx - 0.22, x1: nx + 0.22, z0: nz - 0.22, z1: nz + 0.22 },
@@ -390,7 +544,19 @@ export class Hotel {
     dishes.forEach((c, i) => g.add(at(cyl(0.16, 0.12, 0.1, 10, c, false), x, 1.06, z - 0.95 + i * 0.48)));
     g.add(at(cyl(0.12, 0.12, 0.35, 10, '#C0C6CC', false), x - 0.15, 1.2, z + 1.05));
     this.root.add(g);
-    this.wallRects.push({ x0: x - 0.4, x1: x + 0.4, z0: z - 1.2, z1: z + 1.2 });
+    this.wallRects[0].push({ x0: x - 0.4, x1: x + 0.4, z0: z - 1.2, z1: z + 1.2 });
+    return g;
+  }
+
+  /** Teras bar upstairs: a counter with stools and bottles. */
+  private addTerraceBar() {
+    const [x, z] = HOTEL.bar;
+    const g = new THREE.Group();
+    g.add(at(box(3.2, 1.05, 0.8, C.woodDark), x, 0.525, z), at(box(3.3, 0.08, 0.9, GOLD), x, 1.09, z));
+    ['#3E6B5A', '#8E2B2B', '#E3A64A', '#F4EAD8'].forEach((c, i) => g.add(at(cyl(0.05, 0.06, 0.3, 8, c, false), x - 1.1 + i * 0.7, 1.28, z - 0.15)));
+    for (const dx of [-1, 0, 1]) g.add(at(cyl(0.2, 0.2, 0.08, 10, NAVY), x + dx, 0.7, z + 0.75), at(cyl(0.04, 0.04, 0.66, 6, GOLD), x + dx, 0.33, z + 0.75));
+    this.upper.add(g);
+    this.wallRects[1].push({ x0: x - 1.6, x1: x + 1.6, z0: z - 0.4, z1: z + 0.4 });
     return g;
   }
 
@@ -423,49 +589,73 @@ export class Hotel {
     label.position.set(cx, 0.15, cz);
     g.add(label);
     this.root.add(g);
-    this.wallRects.push({ x0: P.x0 - 0.2, x1: P.x1 + 0.2, z0: P.z0 - 0.2, z1: P.z1 + 0.2 });
+    this.wallRects[0].push({ x0: P.x0 - 0.2, x1: P.x1 + 0.2, z0: P.z0 - 0.2, z1: P.z1 + 0.2 });
     return g;
   }
 
   private rebuildNav() {
-    this.rects = [...this.wallRects, ...(this.hr ? this.hr.rects : [])];
-    this.nav.rebuild(this.rects);
+    this.rects = [[...this.wallRects[0], ...(this.hr ? this.hr.rects : [])], [...this.wallRects[1]]];
+    this.navs.forEach((n, f) => n.rebuild(this.rects[f]));
     this.rectsVersion++;
   }
 
   // ---------- unlocks ----------
 
   private unlockName(u: HotelUnlock) {
-    return TR.hotel.unlock[u.kind](u.index);
+    if (u.kind === 'room') return TR.hotel.unlock.room(ROOMS[u.index].number, ROOMS[u.index].suite);
+    return TR.hotel.unlock[u.kind]();
   }
 
+  /** Two tiles a floor (the upper floor's once it's built), and the upper floor itself at the lift. */
   private refreshTiles() {
-    const locked = HOTEL_UNLOCKS.filter((u) => !this.hs.unlocked.includes(u.id)).slice(0, 2);
-    const wanted: TileDef[] = locked.map((u) => ({ id: u.id, cost: u.cost, x: u.x, z: u.z, label: this.unlockName(u) }));
+    const open = (u: HotelUnlock) => !this.hs.unlocked.includes(u.id);
+    const locked = [
+      ...HOTEL_UNLOCKS.filter((u) => u.floor === 0 && open(u)).slice(0, 2),
+      ...(open(UPPER_FLOOR) ? [UPPER_FLOOR] : []),
+      ...(this.upperBuilt ? HOTEL_UNLOCKS.filter((u) => u.floor === 1 && open(u)).slice(0, 2) : []),
+    ];
     this.tiles = this.tiles.filter((t) => {
-      if (wanted.some((w) => w.id === t.def.id)) return true;
+      if (locked.some((u) => u.id === t.def.id)) return true;
       t.dispose();
       return false;
     });
-    for (const w of wanted) {
-      if (!this.tiles.some((t) => t.def.id === w.id)) this.tiles.push(new UnlockTile(w, this.hs.paid[w.id] ?? 0, this.root));
+    for (const u of locked) {
+      if (this.tiles.some((t) => t.def.id === u.id)) continue;
+      const def: TileDef = { id: u.id, cost: u.cost, x: u.x, z: u.z, label: this.unlockName(u) };
+      this.tiles.push(new UnlockTile(def, this.hs.paid[u.id] ?? 0, this.group(u.floor)));
     }
   }
+
+  private unlockDef(id: string) { return [...HOTEL_UNLOCKS, UPPER_FLOOR].find((x) => x.id === id)!; }
 
   private updateTiles(dt: number, p: THREE.Vector3) {
     for (const tile of [...this.tiles]) {
       tile.update(this.w.reduced ? 0 : this.w.time);
-      if (!this.w.payTile(tile, dist2(p, tile.pos) < 0.95 * 0.95, dt, this.hs.paid)) continue;
+      const u = this.unlockDef(tile.def.id);
+      const on = u.floor === this.playerFloor && dist2(p, tile.pos) < 0.95 * 0.95;
+      if (!this.w.payTile(tile, on, dt, this.hs.paid)) continue;
       delete this.hs.paid[tile.def.id];
       tile.dispose();
       this.tiles = this.tiles.filter((t) => t !== tile);
-      const u = HOTEL_UNLOCKS.find((x) => x.id === tile.def.id)!;
       this.hs.unlocked.push(u.id);
-      const obj = u.kind === 'room' ? this.furnish(this.rooms[u.index])
-        : u.kind === 'desk' ? this.addDesk() : u.kind === 'buffet' ? this.addBuffet() : this.addSpa();
+      let obj: THREE.Object3D;
+      if (u.kind === 'floor') {
+        this.buildUpper();
+        for (const i of UPPER_START) this.furnish(this.rooms[i]);
+        obj = this.buildLift(0);
+        // Bought standing on the pad: step off and back on to ride.
+        this.liftLock = true;
+      } else if (u.kind === 'room') obj = this.furnish(this.rooms[u.index]);
+      else if (u.kind === 'desk') obj = this.addDesk();
+      else if (u.kind === 'buffet') obj = this.addBuffet();
+      else if (u.kind === 'spa') obj = this.addSpa();
+      else obj = this.addTerraceBar();
       this.rebuildNav();
       this.w.celebrate(obj, this.toWorld(v(u.x, u.z)));
-      this.w.hud.toast(u.kind === 'buffet' || u.kind === 'spa' ? TR.hotel.amenity(this.unlockName(u), Math.round(AMENITY_BONUS[u.kind] * 100)) : TR.unlocked(this.unlockName(u)));
+      const amenity = u.kind === 'buffet' || u.kind === 'spa' || u.kind === 'terrace';
+      this.w.hud.toast(u.kind === 'floor' ? TR.hotel.floorOpened
+        : amenity ? TR.hotel.amenity(this.unlockName(u), Math.round(AMENITY_BONUS[u.kind as keyof typeof AMENITY_BONUS] * 100))
+        : TR.unlocked(this.unlockName(u)));
       this.refreshTiles();
       this.w.onBusinessProgress();
       this.persist();
@@ -529,7 +719,7 @@ export class Hotel {
   private spawnStaff(h: HireDef, walkIn: boolean) {
     const i = this.staff.filter((s) => s.role === h.role).length;
     const home = h.role === 'receptionist' ? this.deskZone.clone()
-      : h.role === 'manager' ? v(-8.5, 1.6) : v(-9.8 + (i % 5) * 0.8, -2.2 - Math.floor(i / 5) * 0.6);
+      : h.role === 'manager' ? v(-8, 5.4) : v(-9.8 + (i % 5) * 0.8, -2.2 - Math.floor(i / 5) * 0.6);
     const from = walkIn ? v((Math.random() - 0.5) * 2, 8.8) : undefined;
     const s = new HotelStaff(h.role as 'receptionist' | 'housekeeper' | 'manager', home, this, from);
     this.staff.push(s);
@@ -567,9 +757,13 @@ export class Hotel {
   // ---------- guests ----------
 
   private roomPrice(r: Room) {
-    const u = this.hs.unlocked;
-    const mult = 1 + (u.includes('buffet') ? AMENITY_BONUS.buffet : 0) + (u.includes('spa') ? AMENITY_BONUS.spa : 0);
-    return (r.def.suite ? ROOM_PRICE.suite : ROOM_PRICE.deluxe) * mult;
+    return (r.def.suite ? ROOM_PRICE.suite : ROOM_PRICE.deluxe) * amenityMult(this.hs.unlocked);
+  }
+
+  /** Step into the lift: to the other floor. */
+  ride(a: Rider) {
+    a.floor = 1 - a.floor;
+    a.pos.y = a.floor * H;
   }
 
   private slot(i: number) { return v(this.serve.x, this.serve.z + i * 0.95); }
@@ -589,15 +783,18 @@ export class Hotel {
     this.queue.forEach((q, j) => { if (j >= i) q.goTo(this.nav, this.slot(j)); });
   }
 
-  private exitRoute(from?: RoomDef) {
+  /** Out of a room (down in the lift from upstairs), through the lobby to the street. */
+  private exitRoute(from?: RoomDef): (THREE.Vector3 | 'lift')[] {
     const out = [v(0, 8.8), v((Math.random() - 0.5) * 4, this.street)];
-    return from ? [v(from.door[0], from.door[1]), ...out] : out;
+    if (!from) return out;
+    const door = v(from.door[0], from.door[1]);
+    return from.floor ? [door, this.lift.clone(), 'lift', ...out] : [door, ...out];
   }
 
   gaveUp(g: Guest) {
     this.leaveQueue(g);
     const head = this.toWorld(g.pos.clone());
-    head.y = 2.4;
+    head.y += 2.4;
     this.w.floats.spawn(head, TR.hotel.noRoom, 'angry');
     g.leave(this.exitRoute(), true);
   }
@@ -610,7 +807,7 @@ export class Hotel {
   }
 
   private updateReception(dt: number, p: THREE.Vector3 | null) {
-    this.playerAtDesk = !!p && dist2(p, this.deskZone) < 0.8 * 0.8;
+    this.playerAtDesk = !!p && this.playerFloor === 0 && dist2(p, this.deskZone) < 0.8 * 0.8;
     this.serveT -= dt;
     const g = this.queue[0];
     const present = this.playerAtDesk || !!this.receptionist?.atPost || !!this.cover?.atPost;
@@ -635,16 +832,17 @@ export class Hotel {
   private updateRooms(dt: number, p: THREE.Vector3 | null) {
     for (const r of this.rooms) {
       if (!r.dirty) continue;
-      const here = (!!p && dist2(p, r.zone) < 0.9 * 0.9)
-        || this.staff.some((s) => s.role !== 'receptionist' && !s.leaving && dist2(s.pos, r.zone) < 0.9 * 0.9);
+      const playerHere = !!p && this.playerFloor === r.floor && dist2(p, r.zone) < 0.9 * 0.9;
+      const here = playerHere
+        || this.staff.some((s) => s.role !== 'receptionist' && !s.leaving && s.floor === r.floor && dist2(s.pos, r.zone) < 0.9 * 0.9);
       if (!here) continue;
       r.cleanT += dt;
       if (r.cleanT < CLEAN_TIME || !r.towel.count) continue;
       this.setDirty(r, false);
-      if (p && dist2(p, r.zone) < 0.9 * 0.9) {
+      if (playerHere) {
         this.sfx.play('unlock', 1.4, 0);
         const at = this.toWorld(r.zone.clone());
-        at.y = 2;
+        at.y = r.floor * H + 2;
         this.w.floats.spawn(at, TR.hotel.roomReady);
       }
     }
@@ -653,19 +851,20 @@ export class Hotel {
   // ---------- carrying ----------
 
   /** Towels from the laundry to rooms waiting to be made up, for the player and housekeeping. */
-  interact(c: Carrier | HotelStaff, p: THREE.Vector3) {
+  interact(c: Carrier | HotelStaff, p: THREE.Vector3, floor = this.playerFloor) {
     if (c.cd > 0) return;
     const st = c.stack;
-    if (this.laundry.count && c.accepts.has('towel') && st.canAccept('towel') && dist2(p, this.laundryZone) < 0.9 * 0.9
+    const laundry = this.laundries[floor];
+    if (laundry?.count && c.accepts.has('towel') && st.canAccept('towel') && dist2(p, this.laundryZone) < 0.9 * 0.9
       && (c.wants === undefined || c.wants === 'towel')) {
-      transfer(this.laundry, st);
+      transfer(laundry, st);
       c.cd = BAL.transferInterval * 2;
       if (c.isPlayer) this.sfx.play('pickup', 1 + st.count * 0.04);
       return;
     }
     if (st.kind !== 'towel') return;
     for (const r of this.rooms) {
-      if (!r.dirty || r.towel.count || dist2(p, r.zone) > 1.1 * 1.1) continue;
+      if (r.floor !== floor || !r.dirty || r.towel.count || dist2(p, r.zone) > 1.1 * 1.1) continue;
       transfer(st, r.towel);
       c.cd = BAL.transferInterval * 2;
       if (c.isPlayer) this.sfx.play('drop');
@@ -674,7 +873,7 @@ export class Hotel {
   }
 
   deskAt(p: THREE.Vector3) {
-    return this.hr && dist2(p, this.hr.zone) < 0.8 * 0.8 ? 'hr' as const : null;
+    return this.hr && this.playerFloor === 0 && dist2(p, this.hr.zone) < 0.8 * 0.8 ? 'hr' as const : null;
   }
 
   get crowd() { return this.guests.filter((g) => g.state !== 'sleep').length; }
@@ -690,20 +889,57 @@ export class Hotel {
 
   // ---------- frame ----------
 
+  /** Standing on the lift pad a moment takes the player to the other floor (step off to ride again). */
+  private updateLift(dt: number, p: THREE.Vector3 | null) {
+    if (!p || !this.upperBuilt || dist2(p, this.lift) > 0.7 * 0.7) {
+      this.liftHold = 0;
+      this.liftLock = false;
+      return;
+    }
+    if (this.liftLock) return;
+    this.liftHold += dt;
+    if (this.liftHold < 0.6) return;
+    this.liftLock = true;
+    this.playerFloor = 1 - this.playerFloor;
+    this.w.player.pos.y = this.playerFloor * H;
+    this.rectsVersion++;
+    this.sfx.play('unlock', 1.8, 0);
+    this.w.hud.toast(this.playerFloor ? TR.hotel.upstairs : TR.hotel.progress);
+  }
+
+  /**
+   * Inside, show the player's floor (the upper one lifts away over the lobby);
+   * from outside, the whole building with its top floor.
+   */
+  private updateView(here: boolean) {
+    const view = here ? this.playerFloor : this.upperBuilt ? 1 : 0;
+    this.upper.visible = view === 1;
+    const D = HOTEL.halfD;
+    for (const a of [...this.guests, ...this.staff]) a.ch.root.visible = a.floor === view || (a.floor === 0 && a.pos.z > D + 0.3);
+  }
+
   update(dt: number, player: THREE.Vector3, here: boolean) {
+    // Leaving the hotel (only possible downstairs) puts the player back at ground level.
+    if (!here && this.playerFloor) {
+      this.playerFloor = 0;
+      this.w.player.pos.y = 0;
+      this.rectsVersion++;
+    }
     const p = here ? this.toLocal(player) : null;
     this.towelT -= dt;
     if (this.towelT <= 0) {
       this.towelT = TOWEL_EVERY;
-      if (this.laundry.count < TOWEL_TRAY) {
+      for (const pile of this.laundries) {
+        if (!pile || pile.count >= TOWEL_TRAY) continue;
         const t = makeTowel();
         const from = new THREE.Vector3();
-        this.laundry.anchor.getWorldPosition(from);
+        pile.anchor.getWorldPosition(from);
         t.position.copy(from).add(new THREE.Vector3(0.5, -0.4, 0));
         this.w.scene.add(t);
-        this.laundry.receive(t, 'towel', 0.3);
+        pile.receive(t, 'towel', 0.3);
       }
     }
+    this.updateLift(dt, p);
     this.spawnT -= dt;
     if (this.spawnT <= 0) {
       const rooms = this.rooms.filter((r) => r.unlocked).length;
@@ -714,13 +950,14 @@ export class Hotel {
     this.guests = this.guests.filter((g) => !g.dead);
     for (const s of this.staff) {
       s.update(dt);
-      if (s.role !== 'receptionist' && !s.leaving && !s.atPost) this.interact(s, s.pos);
+      if (s.role !== 'receptionist' && !s.leaving && !s.atPost) this.interact(s, s.pos, s.floor);
     }
     for (const s of this.staff.filter((x) => x.gone)) s.ch.root.removeFromParent();
     this.staff = this.staff.filter((s) => !s.gone);
     this.updateReception(dt, p);
     this.updateRooms(dt, p);
     this.manage(dt);
+    this.updateView(here);
     if (p) this.updateTiles(dt, p);
     this.persistT -= dt;
     if (this.persistT <= 0) {

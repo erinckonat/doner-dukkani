@@ -546,9 +546,12 @@ export class Game {
     const k = snap ? 1 : 1 - Math.exp(-dt * 6);
     this.camTarget.x += (p.x - this.camTarget.x) * k;
     this.camTarget.z += (p.z - this.camTarget.z) * k;
+    // Up a floor (the hotel), the camera rises with the player.
+    this.camTarget.y += (p.y - this.camTarget.y) * k;
+    const y = this.camTarget.y;
     // Narrow FOV from further back keeps verticals upright, like the genre's near-orthographic look.
-    this.camera.position.set(this.camTarget.x, 23 * f, this.camTarget.z + 16.5 * f);
-    this.camera.lookAt(this.camTarget.x, 0, this.camTarget.z - 0.6);
+    this.camera.position.set(this.camTarget.x, y + 23 * f, this.camTarget.z + 16.5 * f);
+    this.camera.lookAt(this.camTarget.x, y, this.camTarget.z - 0.6);
     this.sun.position.set(this.camTarget.x + 8, 20, this.camTarget.z + 10);
     this.sun.target.position.set(this.camTarget.x - 2, 0, this.camTarget.z + 2);
   }
