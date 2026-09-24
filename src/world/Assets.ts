@@ -118,6 +118,41 @@ export function makeShake() {
   return g;
 }
 
+export const GROCERY_SCALE = 1.4;
+
+/** A packaged grocery item: loaf, carton, egg tray, pasta pack, oil bottle, detergent box. */
+export function makeGrocery(kind: 'bread' | 'milk' | 'eggs' | 'pasta' | 'oil' | 'detergent', color: string, label: string) {
+  const g = new THREE.Group();
+  switch (kind) {
+    case 'bread': {
+      const loaf = new THREE.Mesh(geo('loaf', () => new THREE.CapsuleGeometry(0.06, 0.2, 2, 6)), mat(color));
+      loaf.rotation.z = Math.PI / 2;
+      loaf.position.y = 0.065;
+      g.add(loaf);
+      break;
+    }
+    case 'milk':
+      g.add(at(box(0.1, 0.2, 0.1, color, false), 0, 0.1, 0), at(box(0.1, 0.04, 0.06, color, false), 0, 0.22, 0));
+      g.add(at(box(0.102, 0.06, 0.102, label, false), 0, 0.1, 0));
+      break;
+    case 'eggs':
+      g.add(at(box(0.3, 0.08, 0.18, color, false), 0, 0.04, 0), at(box(0.3, 0.02, 0.18, label, false), 0, 0.09, 0));
+      break;
+    case 'pasta':
+      g.add(at(box(0.24, 0.07, 0.12, color, false), 0, 0.035, 0), at(box(0.08, 0.072, 0.122, label, false), 0.05, 0.036, 0));
+      break;
+    case 'oil':
+      g.add(at(cyl(0.07, 0.08, 0.26, 8, color, false), 0, 0.13, 0), at(cyl(0.025, 0.025, 0.06, 6, label, false), 0, 0.29, 0));
+      break;
+    case 'detergent':
+      g.add(at(box(0.2, 0.22, 0.1, color, false), 0, 0.11, 0), at(box(0.202, 0.06, 0.102, label, false), 0, 0.12, 0));
+      break;
+  }
+  // Groceries are shown a little larger than life so they read on the shelves from above.
+  g.scale.setScalar(GROCERY_SCALE);
+  return g;
+}
+
 /** One carried/served item of a product. */
 export function makeProduct(kind: 'doner' | 'burger' | 'fries' | 'shake') {
   switch (kind) {

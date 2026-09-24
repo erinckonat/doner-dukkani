@@ -10,8 +10,8 @@ export class Player {
   /** The boss: navy suit, white shirt, red tie — not kitchen whites. */
   ch = new Character({ shirt: '#2E3A55', pants: '#232833', skin: '#E0AC80', hair: '#2A1E18', collar: '#F4F1EA', tie: '#C8412B' });
   stack: ItemStack;
-  /** The player can carry any product (one kind at a time) and trash. */
-  accepts = new Set<ItemKind>(['doner', 'burger', 'fries', 'shake', 'trash']);
+  /** The player can carry any product or grocery (one kind at a time) and trash. */
+  accepts = new Set<ItemKind>(['doner', 'burger', 'fries', 'shake', 'trash', 'bread', 'milk', 'eggs', 'pasta', 'oil', 'detergent']);
   cd = 0;
   isPlayer = true;
   moving = false;

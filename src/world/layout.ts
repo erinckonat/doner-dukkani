@@ -48,9 +48,12 @@ export const DRIVE_ROAD = { x0: -14.1, x1: -10.9, laneX: -12.3, z0: -45, z1: 45 
 /** Where each shop's local origin sits along the high street (world x). */
 export const SHOP_ORIGIN_X = { doner: 0, burger: 34 } as const;
 
-/** The city: a high street running along x in front of the shops. */
+/**
+ * The city: a high street running along x in front of the shops, and a side street
+ * north to the market (the bounds take it in; hedges and gardens keep walkers on it).
+ */
 export const CITY = {
-  minX: -64, maxX: 84, minZ: -11.5, maxZ: 30,
+  minX: -64, maxX: 118, minZ: -52, maxZ: 30,
   /** Road surface and its lanes (couriers and drive-thru exits use the north lane, heading +x). */
   road: { z0: 15.1, z1: 20.1, northLane: 16.2, southLane: 18.9 },
   /** Kerbside walking lines for passers-by. */

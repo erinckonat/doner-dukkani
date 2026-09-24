@@ -61,6 +61,16 @@ export function staffedIncome(data: SaveData, id: ShopId) {
     .reduce((sum, p) => sum + (priceOf(p.product, lvl) / PRODUCTS[p.product].interval) * SELL_THROUGH, 0);
 }
 
+/** What's been put into a shop: its fit-out, every unlock and extra machine. */
+export function shopAssets(data: SaveData, id: ShopId) {
+  const st = shopState(data, id);
+  if (!st) return 0;
+  const def = SHOPS[id];
+  return def.openCost
+    + def.unlocks.filter((u) => st.unlocked.includes(u.id)).reduce((sum, u) => sum + u.cost, 0)
+    + (st.machines ?? []).reduce((sum, m) => sum + MACHINE_PRICE[m.product], 0);
+}
+
 export const formatOrder = (o: Order) =>
   (Object.entries(o) as [ProductKind, number][]).map(([k, n]) => `${n} ${TR.product[k]}`).join(', ');
 
@@ -189,7 +199,7 @@ export class Shop {
     this.spawnStaff(h, true);
     if (!byManager) this.sfx.play('unlock', 1, 0);
     if (!byManager) this.w.hud.toast(TR.hiredToast(TR.hire[id].name));
-    else if (this.w.activeShop() === this) this.w.hud.toast(TR.managerHired(TR.hire[id].name));
+    else if (this.w.area === this) this.w.hud.toast(TR.managerHired(TR.hire[id].name));
     this.w.panel.render();
     writeSave(this.w.data);
   }
@@ -206,7 +216,7 @@ export class Shop {
     s.dismiss();
     this.ss.hires[id] = n - 1;
     if (!byManager) this.w.hud.toast(TR.firedToast(TR.hire[id].name));
-    else if (this.w.activeShop() === this) this.w.hud.toast(TR.managerFired(TR.hire[id].name));
+    else if (this.w.area === this) this.w.hud.toast(TR.managerFired(TR.hire[id].name));
     this.w.panel.render();
     writeSave(this.w.data);
   }
@@ -463,7 +473,8 @@ export class Shop {
     if (c instanceof Car) at.copy(this.toWorld(new THREE.Vector3(c.pos.x + 0.9, 1.1, c.pos.z)));
     else (c as Customer).ch.hand.getWorldPosition(at);
     const mult = (performance.now() < this.w.cashMultiplierUntil ? 2 : 1) * (1 + buffAmount(this.w.data.buffs, 'tips'));
-    const amount = Math.round(this.orderValue(c.order) * mult);
+    // After a public offering, part of the takings belongs to the shareholders.
+    const amount = Math.round(this.orderValue(c.order) * mult * this.w.ownerShare(this.id));
     this.w.data.money += amount;
     this.w.floats.spawn(at, `+${fmtMoney(amount)}`);
     this.sfx.play('register', 1, 150);
@@ -504,7 +515,7 @@ export class Shop {
         const order = this.makeOrder(o.maxOrder);
         this.couriers.push(new Courier(this, k, order));
         this.sfx.play('order', 1, 0);
-        if (this.w.activeShop() === this) this.w.hud.toast(TR.onlineNew(formatOrder(order)));
+        if (this.w.area === this) this.w.hud.toast(TR.onlineNew(formatOrder(order)));
       }
     }
     for (const x of this.couriers) x.update(dt);
@@ -515,12 +526,12 @@ export class Shop {
   onlineDelivered(c: Courier) {
     const gross = this.orderValue(c.order, BAL.online.markup);
     const fee = BAL.online.courierFee;
-    const net = gross - fee;
+    const net = Math.round((gross - fee) * this.w.ownerShare(this.id));
     this.w.data.money += net;
     const p = this.w.player.pos;
     this.w.floats.spawn(new THREE.Vector3(p.x, 2.2, p.z), `+${fmtMoney(net)}`);
     this.sfx.play('register', 1, 0);
-    if (this.w.activeShop() === this) this.w.hud.toast(TR.onlineDone(fmtMoney(net), fmtMoney(gross), fmtMoney(fee)));
+    if (this.w.area === this) this.w.hud.toast(TR.onlineDone(fmtMoney(net), fmtMoney(gross), fmtMoney(fee)));
   }
 
   // ---------- carrying ----------
@@ -539,7 +550,7 @@ export class Shop {
     }
     if (st.kind && st.kind !== 'trash') {
       for (const k of this.counters) {
-        const pile = k.stocks.get(st.kind);
+        const pile = k.stocks.get(st.kind as ProductKind);
         if (c.dropAt !== undefined && c.dropAt !== k) continue;
         if (!pile || dist2(p, k.dropZone) >= 1 || !pile.canAccept(st.kind)) continue;
         transfer(st, pile);

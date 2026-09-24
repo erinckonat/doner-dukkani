@@ -1,10 +1,15 @@
 import * as THREE from 'three';
 import type { ProductKind } from '../config/balance';
+import type { GroceryKind } from '../config/market';
 import type { Flyer } from '../core/Flyer';
 
-export type ItemKind = ProductKind | 'trash';
+export type ItemKind = ProductKind | GroceryKind | 'trash';
 
-export const ITEM_H: Record<ItemKind, number> = { doner: 0.17, burger: 0.17, fries: 0.2, shake: 0.27, trash: 0.13 };
+export const ITEM_H: Record<ItemKind, number> = {
+  doner: 0.17, burger: 0.17, fries: 0.2, shake: 0.27, trash: 0.13,
+  // Groceries are drawn at 1.4× (GROCERY_SCALE).
+  bread: 0.18, milk: 0.34, eggs: 0.14, pasta: 0.11, oil: 0.45, detergent: 0.34,
+};
 
 export type Layout = (i: number, kind: ItemKind) => THREE.Vector3;
 
@@ -49,13 +54,24 @@ export class ItemStack {
 
   receive(obj: THREE.Object3D, kind: ItemKind, dur = 0.28, onDone?: () => void) {
     const i = this.items.length;
-    const local = this.mixed
+    // Mixed piles stack by item height unless given their own layout (a basket, a belt).
+    const local = this.mixed && this.layout === columnLayout
       ? new THREE.Vector3(0, this.kinds.reduce((h, k) => h + ITEM_H[k], 0), 0)
       : this.layout(i, kind);
     this.items.push(obj);
     this.kinds.push(kind);
     this.kind = kind;
     this.flyer.fly(obj, this.anchor, local, { dur, onDone });
+  }
+
+  /** Place an item straight onto the pile with no flight (loading a save, restocking a new shelf). */
+  put(obj: THREE.Object3D, kind: ItemKind) {
+    const i = this.items.length;
+    this.anchor.add(obj);
+    obj.position.copy(this.layout(i, kind));
+    this.items.push(obj);
+    this.kinds.push(kind);
+    this.kind = kind;
   }
 
   take(): THREE.Object3D | undefined {

@@ -1,5 +1,7 @@
 import type { HireId, ProductKind, ShopId, UpgradeId } from '../config/balance';
 import type { Buffs } from '../config/city';
+import type { GroceryKind } from '../config/market';
+import type { ExchangeState } from '../systems/Exchange';
 
 const KEY = 'doner-dukkani-save-v1';
 
@@ -24,6 +26,14 @@ export interface SaveData extends ShopState {
   /** Shop the player is in; absent = döner. */
   shop?: ShopId;
   burger?: ShopState;
+  /** The supermarket on the side street, once bought. */
+  market?: ShopState & {
+    /** Units waiting in the stockroom and on each shelf segment ("row:segment"). */
+    pallets: Partial<Record<GroceryKind, number>>;
+    shelves: Record<string, number>;
+  };
+  /** Stock exchange: prices, the player's holdings, and how much of each own company is public. */
+  exchange?: ExchangeState;
   /** Timed boosts from the gym, barber, café and pide salon. */
   buffs?: Buffs;
   tut: number;

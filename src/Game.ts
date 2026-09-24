@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BAL, SHOPS, type ShopId } from './config/balance';
 import { buffAmount, BURGER_PLOT_ID, type Activity, type BuffId, type BusinessDef } from './config/city';
+import { MARKET, MARKET_OPEN_COST, MARKET_ORIGIN, MARKET_UNLOCKS } from './config/market';
 import { Sfx } from './core/Audio';
 import { Flyer } from './core/Flyer';
 import { Input } from './core/Input';
@@ -10,21 +11,28 @@ import { easeOutQuart, Tweens } from './core/Tween';
 import { dist2 } from './entities/Agent';
 import { Ambient } from './entities/Ambient';
 import { Player } from './entities/Player';
-import { Shop, staffedIncome } from './Shop';
+import { freshMarket, Market, marketAssets, marketStaffedIncome } from './Market';
+import { Shop, shopAssets, staffedIncome } from './Shop';
 import type { DeskKind } from './stations/Props';
 import { UnlockTile, type TileDef } from './stations/UnlockTile';
 import { Confetti, FloatingText, makeArrow } from './systems/Effects';
+import { Exchange, type OwnId } from './systems/Exchange';
 import { ActivityPanel } from './ui/ActivityPanel';
+import { BorsaPanel } from './ui/BorsaPanel';
 import { fmtMoney, Hud } from './ui/Hud';
 import { TR } from './ui/strings.tr';
 import { SavePanel } from './ui/SavePanel';
 import { UpgradePanel } from './ui/UpgradePanel';
 import { buildCity, type BusinessPad, type CityRefs } from './world/City';
 import { SHOP_ORIGIN_X, START_POS } from './world/layout';
+import { buildMarketSite, type MarketSite } from './world/MarketSite';
 
 const TUTORIAL_STEPS = TR.hints.length;
 /** Half the width of a shop's plot along the street, for "which shop am I in". */
 const PLOT_HALF = 17;
+/** A business is valued at what went into it plus this many seconds of its earnings. */
+const VALUE_SECONDS = 20000;
+const MARKET_PLOT_ID = 'market';
 
 interface ActivityRun { biz: BusinessDef; act: Activity; t: number; pad: BusinessPad }
 
@@ -47,6 +55,9 @@ export class Game {
   data: SaveData;
   player: Player;
   shops: Shop[] = [];
+  market: Market | null = null;
+  exchange: Exchange;
+  borsa: BorsaPanel;
   floats: FloatingText;
   cashMultiplierUntil = 0;
   time = 0;
@@ -58,6 +69,10 @@ export class Game {
   private rects: Rect[] = [];
   private rectsKey = '';
   private plotTile: UnlockTile | null = null;
+  private marketTile: UnlockTile | null = null;
+  private site: MarketSite;
+  /** Where the player is: one of the shops or the market. */
+  area: Shop | Market | null = null;
   private confetti: Confetti;
   private arrow: ReturnType<typeof makeArrow>;
   private saveT = 0;
@@ -120,11 +135,28 @@ export class Game {
     if (this.data.burger) this.openBurgerShop(false);
     else this.refreshPlotTile();
 
+    this.site = buildMarketSite(this.scene);
+    if (this.data.market) this.openMarket(false);
+    else {
+      const def: TileDef = { id: MARKET_PLOT_ID, cost: MARKET_OPEN_COST, x: this.site.tile.x, z: this.site.tile.z, label: TR.market.plotLabel };
+      this.marketTile = new UnlockTile(def, this.data.paid[MARKET_PLOT_ID] ?? 0, this.scene);
+    }
+
+    const g = this;
+    this.exchange = new Exchange(this.data.exchange, {
+      companyValue: (id) => this.companyValue(id),
+      get money() { return g.data.money; },
+      spend: (tl) => { this.data.money -= tl; },
+      receive: (tl) => { this.data.money += tl; },
+    });
+    this.data.exchange = this.exchange.s;
+    this.borsa = new BorsaPanel(this);
+
     this.grantOffline();
 
     addEventListener('resize', this.resize);
     this.resize();
-    const persist = () => writeSave(this.data);
+    const persist = () => this.save();
     addEventListener('pagehide', persist);
     document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
   }
@@ -144,6 +176,26 @@ export class Game {
   }
 
   addMoney(v: number) { this.data.money += v; }
+
+  save() {
+    this.market?.persist();
+    writeSave(this.data);
+  }
+
+  /** Share of a business's profit that is the player's (all of it until it's floated). */
+  ownerShare(id: OwnId) { return this.exchange ? this.exchange.ownerShare(id) : 1; }
+
+  /** A business's worth for the exchange, or null if the player doesn't own one yet. */
+  companyValue(id: OwnId): number | null {
+    if (id === 'market') return this.market ? marketAssets(this.data) + this.market.incomePerSecond() * VALUE_SECONDS : null;
+    const shop = this.shops.find((s) => s.id === id);
+    return shop ? shopAssets(this.data, id) + shop.incomePerSecond() * VALUE_SECONDS : null;
+  }
+
+  private get inMarket() {
+    const p = this.player.pos;
+    return !!this.market && p.x > MARKET_ORIGIN.x - MARKET.halfW - 1 && p.z < MARKET_ORIGIN.z + MARKET.halfD + 4;
+  }
 
   incomePerSecond() { return this.shops.reduce((s, x) => s + x.incomePerSecond(), 0); }
 
@@ -183,6 +235,10 @@ export class Game {
     tile.draw();
     this.sfx.play('tick', 1 + (tile.paid / tile.def.cost) * 1.5, 70);
     return tile.remaining <= 0.001;
+  }
+
+  onMarketProgress() {
+    if (this.area === this.market) this.hud.setProgress(this.market!.ss.unlocked.length, MARKET_UNLOCKS.length, TR.market.progress);
   }
 
   onShopProgress(s: Shop) {
@@ -227,6 +283,31 @@ export class Game {
     writeSave(this.data);
   }
 
+  // ---------- the supermarket up the side street ----------
+
+  private openMarket(animate: boolean) {
+    this.data.market ??= freshMarket();
+    this.site.lot.removeFromParent();
+    this.market = new Market(this);
+    this.rectsKey = '';
+    if (animate) {
+      this.celebrate(this.market.root, new THREE.Vector3(MARKET_ORIGIN.x, 0, MARKET_ORIGIN.z + 6));
+      this.hud.toast(TR.market.opened);
+    }
+  }
+
+  private updateMarketTile(dt: number) {
+    const tile = this.marketTile;
+    if (!tile) return;
+    tile.update(this.reduced ? 0 : this.time);
+    if (!this.payTile(tile, dist2(this.player.pos, tile.pos) < 0.95 * 0.95, dt, this.data.paid)) return;
+    delete this.data.paid[MARKET_PLOT_ID];
+    tile.dispose();
+    this.marketTile = null;
+    this.openMarket(true);
+    this.save();
+  }
+
   // ---------- businesses across the street ----------
 
   startActivity(biz: BusinessDef, act: Activity) {
@@ -268,14 +349,16 @@ export class Game {
     if (pad !== this.padInside) {
       this.padInside = pad;
       this.padHold = 0;
-      if (!pad) this.activityPanel.close();
+      if (!pad) { this.activityPanel.close(); this.borsa.close(); }
     }
-    if (!pad || this.activityPanel.isOpen) return;
+    if (!pad || this.activityPanel.isOpen || this.borsa.isOpen) return;
     this.padHold += dt;
     if (this.padHold < 0.4) return;
     this.panel.close();
     this.savePanel.close();
-    this.activityPanel.open(pad.biz);
+    // The bank's door leads to the stock exchange.
+    if (pad.biz.kind === 'bank') this.borsa.open();
+    else this.activityPanel.open(pad.biz);
   }
 
   private updateBuffChips(dt: number) {
@@ -298,7 +381,8 @@ export class Game {
   private grantOffline() {
     if (!this.data.t) return;
     const secs = Math.min((Date.now() - this.data.t) / 1000, BAL.offlineCapSec);
-    const rate = (['doner', 'burger'] as ShopId[]).reduce((s, id) => s + staffedIncome(this.data, id), 0);
+    const rate = (['doner', 'burger'] as ShopId[]).reduce((s, id) => s + staffedIncome(this.data, id) * this.ownerShare(id), 0)
+      + marketStaffedIncome(this.data) * this.ownerShare('market');
     const earn = Math.floor(secs * rate * BAL.offlineRate);
     if (earn < 1) return;
     this.data.money += earn;
@@ -347,11 +431,14 @@ export class Game {
 
   private updateDesks() {
     const s = this.active!;
-    const kind = this.inPlot(s) ? s.deskAt(new THREE.Vector3(this.player.pos.x - s.ox, 0, this.player.pos.z)) : null;
+    const m = this.inMarket ? this.market : null;
+    const kind = m
+      ? m.deskAt(m.toLocal(this.player.pos))
+      : this.inPlot(s) ? s.deskAt(new THREE.Vector3(this.player.pos.x - s.ox, 0, this.player.pos.z)) : null;
     if (kind && kind !== this.deskInside) {
       this.savePanel.close();
       this.activityPanel.close();
-      this.panel.open(kind, s);
+      this.panel.open(kind, m ?? s);
     }
     if (!kind && this.deskInside) this.panel.close();
     this.deskInside = kind;
@@ -375,13 +462,21 @@ export class Game {
 
   /** Player collision: city buildings plus every shop's current obstacles. */
   private updateRects() {
-    const key = this.shops.map((s) => s.rectsVersion).join();
+    const key = [...this.shops.map((s) => s.rectsVersion), this.market?.rectsVersion ?? -1].join();
     if (key === this.rectsKey) return;
     this.rectsKey = key;
-    this.rects = [...this.city.rects, ...this.shops.flatMap((s) => s.worldRects())];
+    this.rects = [
+      ...this.city.rects, ...this.site.rects,
+      ...(this.market ? this.market.worldRects() : [this.site.lotRect]),
+      ...this.shops.flatMap((s) => s.worldRects()),
+    ];
   }
 
   private updateAmbience(dt: number) {
+    if (this.inMarket) {
+      this.sfx.update(dt, this.market!.crowd, 0, 0);
+      return;
+    }
     const s = this.active!;
     const p = this.player.pos;
     const near = Math.min(...s.producers.map((m) => Math.sqrt(dist2(p, s.toWorld(m.zone)))));
@@ -419,19 +514,29 @@ export class Game {
     this.player.update(dt, move, this.playerSpeed, this.rects);
     this.updateSeat(move);
 
-    const active = this.activeShop();
-    if (active !== this.active) {
-      this.active = active;
-      this.hud.setProgress(active.ss.unlocked.length, active.def.unlocks.length);
+    const active = (this.active = this.activeShop());
+    const inMarket = this.inMarket;
+    const area = inMarket ? this.market : active;
+    if (area !== this.area) {
+      this.area = area;
+      if (inMarket) this.onMarketProgress();
+      else this.hud.setProgress(active.ss.unlocked.length, active.def.unlocks.length);
       if (this.panel.isOpen) this.panel.close();
     }
     const p = this.player.pos;
-    for (const s of this.shops) s.update(dt, p, this.inPlot(s) && !this.activity);
-    if (this.inPlot(active) && !this.activity) {
+    for (const s of this.shops) s.update(dt, p, !inMarket && this.inPlot(s) && !this.activity);
+    if (!inMarket && this.inPlot(active) && !this.activity) {
       active.interact(this.player, new THREE.Vector3(p.x - active.ox, 0, p.z));
+    }
+    if (this.market) {
+      const here = inMarket && !this.activity;
+      this.market.update(dt, p, here);
+      if (here) this.market.interact(this.player, this.market.toLocal(p));
     }
     this.updateDesks();
     this.updatePlotTile(dt);
+    this.updateMarketTile(dt);
+    this.borsa.update(dt, this.exchange.update(dt));
     this.updatePads(dt);
     this.updateActivity(dt);
     this.ambient.update(dt);
@@ -449,7 +554,7 @@ export class Game {
     this.saveT += dt;
     if (this.saveT > 5) {
       this.saveT = 0;
-      writeSave(this.data);
+      this.save();
     }
   }
 

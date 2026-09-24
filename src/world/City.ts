@@ -208,7 +208,7 @@ export function buildCity(scene: THREE.Scene): CityRefs {
   const cx = (minX + maxX) / 2;
 
   // Paving everywhere, then the high street on top.
-  scene.add(at(plane(width, 110, '#D8C8AE', 0), cx, -0.02, 10));
+  scene.add(at(plane(width, 170, '#D8C8AE', 0), cx, -0.02, -20));
   const roadW = road.z1 - road.z0;
   const roadZ = (road.z0 + road.z1) / 2;
   scene.add(at(plane(width, roadW, '#6E6258', 0), cx, -0.01, roadZ));
@@ -235,7 +235,8 @@ export function buildCity(scene: THREE.Scene): CityRefs {
 
   for (const biz of BUSINESSES) {
     buildBusiness(scene, biz, rects, spinners);
-    if (biz.activities.length) {
+    // The bank has no activity: its door opens the stock exchange.
+    if (biz.activities.length || biz.kind === 'bank') {
       const pos = new THREE.Vector3(biz.x, 0, CITY.northFront + 1.1);
       const d = padDecal();
       d.position.set(pos.x, 0.03, pos.z);

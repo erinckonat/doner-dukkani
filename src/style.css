@@ -593,6 +593,48 @@ button:focus-visible {
   cursor: not-allowed;
 }
 
+/* ---------- Stock exchange ---------- */
+
+#borsa-panel .panel { width: min(560px, 100%); max-height: 80dvh; }
+.plain-list { list-style: none; margin: 0; padding: 0; }
+
+.borsa-summary {
+  display: flex;
+  gap: var(--s3);
+  margin: var(--s1) 0 0;
+  padding: var(--s2);
+  border-radius: var(--s2);
+  background: rgba(47, 93, 140, 0.08);
+}
+.borsa-summary dt { font: 700 14px/1 var(--body); color: var(--dark-soft); }
+.borsa-summary dd { margin: var(--s1) 0 0; font: 800 22px/1 var(--display); color: var(--dark); }
+
+.upg.stock { flex-direction: column; align-items: stretch; gap: var(--s1); }
+.stock-head { display: flex; align-items: center; gap: var(--s2); }
+.ticker {
+  margin-left: var(--s1);
+  padding: 2px var(--s1);
+  border-radius: var(--s1);
+  background: rgba(47, 93, 140, 0.12);
+  color: #2f5d8c;
+  font: 800 12px/1.4 var(--display);
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+.upg p.quote { margin: 0; font: 700 16px/1.4 var(--display); color: var(--dark); }
+.upg p.note { margin: 0; font: 600 14px/1.6 var(--body); color: var(--dark-soft); }
+.up { color: #2e6b4a; }
+.down { color: var(--primary); }
+.spark { flex: none; width: 96px; height: 32px; }
+.spark polyline { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.spark.up polyline { stroke: #2e6b4a; }
+.spark.down polyline { stroke: var(--primary); }
+.stock-actions { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.buy.mini { min-width: 0; height: 40px; padding: 0 var(--s2); font-size: 15px; border-radius: 12px; }
+.buy.mini small { font-size: 12px; }
+.buy.mini:has(small) { height: 48px; }
+.plain-list .fine { padding: var(--s1) 0; font: 600 13px/1.6 var(--body); color: var(--dark-soft); }
+
 @media (max-width: 480px) {
   .hud { gap: var(--s1); }
   .money { font-size: 20px; padding-right: var(--s2); }

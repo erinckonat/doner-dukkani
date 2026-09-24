@@ -44,10 +44,10 @@ export class Hud {
     this.moneyVal.textContent = fmtMoney(v);
   }
 
-  setProgress(done: number, total: number) {
+  setProgress(done: number, total: number, label: string = TR.shop) {
     const p = total ? done / total : 1;
     this.progFill.style.transform = `scaleX(${p})`;
-    this.progLabel.textContent = `${TR.shop} %${Math.round(p * 100)}`;
+    this.progLabel.textContent = `${label} %${Math.round(p * 100)}`;
   }
 
   setHint(text: string | null) {

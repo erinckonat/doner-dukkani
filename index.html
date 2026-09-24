@@ -96,6 +96,25 @@
       </section>
     </div>
 
+    <div class="panel-wrap" id="borsa-panel" hidden>
+      <section class="panel" role="dialog" aria-labelledby="borsa-title">
+        <header>
+          <div>
+            <h2 id="borsa-title">Şehir Borsası</h2>
+            <p class="sub">Hisse al, sat; kendi şirketlerini halka arz et.</p>
+          </div>
+          <button class="icon-btn small" id="borsa-close" type="button" aria-label="Kapat">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </header>
+        <dl class="borsa-summary">
+          <div><dt>Nakit</dt><dd id="borsa-cash">₺0</dd></div>
+          <div><dt>Portföy</dt><dd id="borsa-portfolio">₺0</dd></div>
+        </dl>
+        <ul class="plain-list" id="borsa-list"></ul>
+      </section>
+    </div>
+
     <div class="panel-wrap" id="save-panel" hidden>
       <section class="panel" role="dialog" aria-labelledby="save-title">
         <header>
