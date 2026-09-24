@@ -32,6 +32,8 @@ export interface SaveData extends ShopState {
     pallets: Partial<Record<GroceryKind, number>>;
     shelves: Record<string, number>;
   };
+  /** The five-star hotel; `dirty` lists rooms waiting to be made up. */
+  hotel?: ShopState & { dirty: number[] };
   /** Stock exchange: prices, the player's holdings, and how much of each own company is public. */
   exchange?: ExchangeState;
   /** Timed boosts from the gym, barber, café and pide salon. */

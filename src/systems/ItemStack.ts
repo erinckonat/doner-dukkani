@@ -3,10 +3,10 @@ import type { ProductKind } from '../config/balance';
 import type { GroceryKind } from '../config/market';
 import type { Flyer } from '../core/Flyer';
 
-export type ItemKind = ProductKind | GroceryKind | 'trash';
+export type ItemKind = ProductKind | GroceryKind | 'trash' | 'towel';
 
 export const ITEM_H: Record<ItemKind, number> = {
-  doner: 0.17, burger: 0.17, fries: 0.2, shake: 0.27, trash: 0.13,
+  doner: 0.17, burger: 0.17, fries: 0.2, shake: 0.27, trash: 0.13, towel: 0.1,
   // Groceries are drawn at 1.4× (GROCERY_SCALE).
   bread: 0.18, milk: 0.34, eggs: 0.14, pasta: 0.11, oil: 0.45, detergent: 0.34,
 };

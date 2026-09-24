@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BAL, SHOPS, type ShopId } from './config/balance';
 import { buffAmount, BURGER_PLOT_ID, type Activity, type BuffId, type BusinessDef } from './config/city';
+import { HOTEL, HOTEL_OPEN_COST, HOTEL_ORIGIN, HOTEL_UNLOCKS } from './config/hotel';
 import { MARKET, MARKET_OPEN_COST, MARKET_ORIGIN, MARKET_UNLOCKS } from './config/market';
 import { Sfx } from './core/Audio';
 import { Flyer } from './core/Flyer';
@@ -11,6 +12,7 @@ import { easeOutQuart, Tweens } from './core/Tween';
 import { dist2 } from './entities/Agent';
 import { Ambient } from './entities/Ambient';
 import { Player } from './entities/Player';
+import { freshHotel, Hotel, hotelAssets, hotelStaffedIncome } from './Hotel';
 import { freshMarket, Market, marketAssets, marketStaffedIncome } from './Market';
 import { Shop, shopAssets, staffedIncome } from './Shop';
 import type { DeskKind } from './stations/Props';
@@ -33,6 +35,7 @@ const PLOT_HALF = 17;
 /** A business is valued at what went into it plus this many seconds of its earnings. */
 const VALUE_SECONDS = 20000;
 const MARKET_PLOT_ID = 'market';
+const HOTEL_PLOT_ID = 'hotel';
 
 interface ActivityRun { biz: BusinessDef; act: Activity; t: number; pad: BusinessPad }
 
@@ -56,6 +59,7 @@ export class Game {
   player: Player;
   shops: Shop[] = [];
   market: Market | null = null;
+  hotel: Hotel | null = null;
   exchange: Exchange;
   borsa: BorsaPanel;
   floats: FloatingText;
@@ -70,9 +74,10 @@ export class Game {
   private rectsKey = '';
   private plotTile: UnlockTile | null = null;
   private marketTile: UnlockTile | null = null;
+  private hotelTile: UnlockTile | null = null;
   private site: MarketSite;
   /** Where the player is: one of the shops or the market. */
-  area: Shop | Market | null = null;
+  area: Shop | Market | Hotel | null = null;
   private confetti: Confetti;
   private arrow: ReturnType<typeof makeArrow>;
   private saveT = 0;
@@ -141,6 +146,11 @@ export class Game {
       const def: TileDef = { id: MARKET_PLOT_ID, cost: MARKET_OPEN_COST, x: this.site.tile.x, z: this.site.tile.z, label: TR.market.plotLabel };
       this.marketTile = new UnlockTile(def, this.data.paid[MARKET_PLOT_ID] ?? 0, this.scene);
     }
+    if (this.data.hotel) this.openHotel(false);
+    else {
+      const def: TileDef = { id: HOTEL_PLOT_ID, cost: HOTEL_OPEN_COST, x: this.site.hotelTile.x, z: this.site.hotelTile.z, label: TR.hotel.plotLabel };
+      this.hotelTile = new UnlockTile(def, this.data.paid[HOTEL_PLOT_ID] ?? 0, this.scene);
+    }
 
     const g = this;
     this.exchange = new Exchange(this.data.exchange, {
@@ -179,6 +189,7 @@ export class Game {
 
   save() {
     this.market?.persist();
+    this.hotel?.persist();
     writeSave(this.data);
   }
 
@@ -188,8 +199,15 @@ export class Game {
   /** A business's worth for the exchange, or null if the player doesn't own one yet. */
   companyValue(id: OwnId): number | null {
     if (id === 'market') return this.market ? marketAssets(this.data) + this.market.incomePerSecond() * VALUE_SECONDS : null;
+    if (id === 'hotel') return this.hotel ? hotelAssets(this.data) + this.hotel.incomePerSecond() * VALUE_SECONDS : null;
     const shop = this.shops.find((s) => s.id === id);
     return shop ? shopAssets(this.data, id) + shop.incomePerSecond() * VALUE_SECONDS : null;
+  }
+
+  private get inHotel() {
+    const p = this.player.pos;
+    const { x, z } = HOTEL_ORIGIN;
+    return !!this.hotel && Math.abs(p.x - x) < HOTEL.halfW + 0.6 && p.z > z - HOTEL.halfD - 1 && p.z < z + HOTEL.halfD + 0.4;
   }
 
   private get inMarket() {
@@ -237,8 +255,9 @@ export class Game {
     return tile.remaining <= 0.001;
   }
 
-  onMarketProgress() {
-    if (this.area === this.market) this.hud.setProgress(this.market!.ss.unlocked.length, MARKET_UNLOCKS.length, TR.market.progress);
+  onBusinessProgress() {
+    if (this.area && this.area === this.market) this.hud.setProgress(this.market.ss.unlocked.length, MARKET_UNLOCKS.length, TR.market.progress);
+    if (this.area && this.area === this.hotel) this.hud.setProgress(this.hotel.ss.unlocked.length, HOTEL_UNLOCKS.length, TR.hotel.progress);
   }
 
   onShopProgress(s: Shop) {
@@ -305,6 +324,31 @@ export class Game {
     tile.dispose();
     this.marketTile = null;
     this.openMarket(true);
+    this.save();
+  }
+
+  // ---------- the hotel in the garden ----------
+
+  private openHotel(animate: boolean) {
+    this.data.hotel ??= freshHotel();
+    this.site.garden.removeFromParent();
+    this.hotel = new Hotel(this);
+    this.rectsKey = '';
+    if (animate) {
+      this.celebrate(this.hotel.root, new THREE.Vector3(HOTEL_ORIGIN.x, 0, HOTEL_ORIGIN.z + 4));
+      this.hud.toast(TR.hotel.opened);
+    }
+  }
+
+  private updateHotelTile(dt: number) {
+    const tile = this.hotelTile;
+    if (!tile) return;
+    tile.update(this.reduced ? 0 : this.time);
+    if (!this.payTile(tile, dist2(this.player.pos, tile.pos) < 0.95 * 0.95, dt, this.data.paid)) return;
+    delete this.data.paid[HOTEL_PLOT_ID];
+    tile.dispose();
+    this.hotelTile = null;
+    this.openHotel(true);
     this.save();
   }
 
@@ -382,7 +426,8 @@ export class Game {
     if (!this.data.t) return;
     const secs = Math.min((Date.now() - this.data.t) / 1000, BAL.offlineCapSec);
     const rate = (['doner', 'burger'] as ShopId[]).reduce((s, id) => s + staffedIncome(this.data, id) * this.ownerShare(id), 0)
-      + marketStaffedIncome(this.data) * this.ownerShare('market');
+      + marketStaffedIncome(this.data) * this.ownerShare('market')
+      + hotelStaffedIncome(this.data) * this.ownerShare('hotel');
     const earn = Math.floor(secs * rate * BAL.offlineRate);
     if (earn < 1) return;
     this.data.money += earn;
@@ -431,7 +476,7 @@ export class Game {
 
   private updateDesks() {
     const s = this.active!;
-    const m = this.inMarket ? this.market : null;
+    const m = this.inMarket ? this.market : this.inHotel ? this.hotel : null;
     const kind = m
       ? m.deskAt(m.toLocal(this.player.pos))
       : this.inPlot(s) ? s.deskAt(new THREE.Vector3(this.player.pos.x - s.ox, 0, this.player.pos.z)) : null;
@@ -462,19 +507,20 @@ export class Game {
 
   /** Player collision: city buildings plus every shop's current obstacles. */
   private updateRects() {
-    const key = [...this.shops.map((s) => s.rectsVersion), this.market?.rectsVersion ?? -1].join();
+    const key = [...this.shops.map((s) => s.rectsVersion), this.market?.rectsVersion ?? -1, this.hotel?.rectsVersion ?? -1].join();
     if (key === this.rectsKey) return;
     this.rectsKey = key;
     this.rects = [
       ...this.city.rects, ...this.site.rects,
       ...(this.market ? this.market.worldRects() : [this.site.lotRect]),
+      ...(this.hotel ? [...this.hotel.worldRects(), ...this.site.hotelRing] : [this.site.gardenRect]),
       ...this.shops.flatMap((s) => s.worldRects()),
     ];
   }
 
   private updateAmbience(dt: number) {
-    if (this.inMarket) {
-      this.sfx.update(dt, this.market!.crowd, 0, 0);
+    if (this.inMarket || this.inHotel) {
+      this.sfx.update(dt, (this.inMarket ? this.market! : this.hotel!).crowd, 0, 0);
       return;
     }
     const s = this.active!;
@@ -516,16 +562,18 @@ export class Game {
 
     const active = (this.active = this.activeShop());
     const inMarket = this.inMarket;
-    const area = inMarket ? this.market : active;
+    const inHotel = this.inHotel;
+    const elsewhere = inMarket || inHotel;
+    const area = inMarket ? this.market : inHotel ? this.hotel : active;
     if (area !== this.area) {
       this.area = area;
-      if (inMarket) this.onMarketProgress();
+      if (elsewhere) this.onBusinessProgress();
       else this.hud.setProgress(active.ss.unlocked.length, active.def.unlocks.length);
       if (this.panel.isOpen) this.panel.close();
     }
     const p = this.player.pos;
-    for (const s of this.shops) s.update(dt, p, !inMarket && this.inPlot(s) && !this.activity);
-    if (!inMarket && this.inPlot(active) && !this.activity) {
+    for (const s of this.shops) s.update(dt, p, !elsewhere && this.inPlot(s) && !this.activity);
+    if (!elsewhere && this.inPlot(active) && !this.activity) {
       active.interact(this.player, new THREE.Vector3(p.x - active.ox, 0, p.z));
     }
     if (this.market) {
@@ -533,9 +581,15 @@ export class Game {
       this.market.update(dt, p, here);
       if (here) this.market.interact(this.player, this.market.toLocal(p));
     }
+    if (this.hotel) {
+      const here = inHotel && !this.activity;
+      this.hotel.update(dt, p, here);
+      if (here) this.hotel.interact(this.player, this.hotel.toLocal(p));
+    }
     this.updateDesks();
     this.updatePlotTile(dt);
     this.updateMarketTile(dt);
+    this.updateHotelTile(dt);
     this.borsa.update(dt, this.exchange.update(dt));
     this.updatePads(dt);
     this.updateActivity(dt);

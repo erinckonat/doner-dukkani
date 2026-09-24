@@ -16,7 +16,7 @@ const SPARE_EXTRA = 4;
 /** At most this many workers wait at one machine for the same product. */
 const PER_MACHINE = 2;
 
-const SHIRT: Record<StaffRole, string> = { manager: '#8FA6BF', cashier: C.gold, carrier: C.gold, cleaner: '#5E8C7A', stocker: '#3E6B5A' };
+const SHIRT: Record<StaffRole, string> = { manager: '#8FA6BF', cashier: C.gold, carrier: C.gold, cleaner: '#5E8C7A', stocker: '#3E6B5A', receptionist: '#2E3A55', housekeeper: '#E9E4DA' };
 
 type Task = { kind: 'fetch'; product: ProductKind } | { kind: 'clean'; table: Table } | null;
 

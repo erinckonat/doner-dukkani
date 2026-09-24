@@ -6,7 +6,7 @@
  * shares back, and trade city companies.
  */
 
-export type OwnId = 'doner' | 'burger' | 'market';
+export type OwnId = 'doner' | 'burger' | 'market' | 'hotel';
 
 export interface CompanyDef {
   id: string;
@@ -36,6 +36,7 @@ export const COMPANIES: CompanyDef[] = [
   { id: 'doner', code: 'DONER', own: 'doner', start: 0, vol: 0.012, drift: 0, shares: OWN_SHARES },
   { id: 'burger', code: 'BRGR', own: 'burger', start: 0, vol: 0.014, drift: 0, shares: OWN_SHARES },
   { id: 'market', code: 'MRKT', own: 'market', start: 0, vol: 0.01, drift: 0, shares: OWN_SHARES },
+  { id: 'hotel', code: 'LALE', own: 'hotel', start: 0, vol: 0.011, drift: 0, shares: OWN_SHARES },
   { id: 'holding', code: 'ANDLH', start: 118.5, vol: 0.009, drift: 0.00012, shares: 10_000_000 },
   { id: 'energy', code: 'MRMRE', start: 56.3, vol: 0.016, drift: 0.00008, shares: 10_000_000 },
   { id: 'bank', code: 'SHRBN', start: 42.8, vol: 0.008, drift: 0.0001, shares: 10_000_000 },

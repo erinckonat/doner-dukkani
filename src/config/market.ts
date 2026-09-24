@@ -126,6 +126,7 @@ export const marketRate = (rows: number, checkouts: number) =>
  * minimum-wage employer cost up front, rising to a full month).
  */
 export const MARKET_HIRES: HireDef[] = [
+  { id: 'manager', role: 'manager', costs: [40000] },
   { id: 'cashier', role: 'cashier', costs: [14000], counter: 0 },
   { id: 'stocker', role: 'stocker', costs: [14000, 21000, 28000], max: 20 },
   { id: 'checkout2', role: 'cashier', costs: [14000], counter: 1, requires: 'checkout2' },

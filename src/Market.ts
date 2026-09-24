@@ -46,12 +46,18 @@ export interface Checkout {
   cashierZone: THREE.Vector3;
   belt: ItemStack;
   staffCashier: MarketStaff | null;
+  /** The manager standing in while the till has no cashier. */
+  cover: MarketStaff | null;
   playerHere: boolean;
   serveT: number;
   rect: Rect;
 }
 
 const v = (x: number, z: number) => new THREE.Vector3(x, 0, z);
+/** Manager: seconds of history it looks at, pause between decisions, cash it never spends. */
+const MANAGER_WINDOW = 30;
+const MANAGER_COOLDOWN = 25;
+const MANAGER_RESERVE = 20000;
 const segKey = (row: number, seg: number) => `${row}:${seg}`;
 
 /** Build a fresh market state: the front two aisles stocked, full pallets. */
@@ -327,7 +333,7 @@ export class Market {
     const k: Checkout = {
       index: i, x, queue: [], serve: v(x - 0.95, z + 0.6), cashierZone,
       belt: new ItemStack(anchor, this.flyer, () => 99, beltLayout, true),
-      staffCashier: null, playerHere: false, serveT: 0,
+      staffCashier: null, cover: null, playerHere: false, serveT: 0,
       rect: { x0: x - 0.4, x1: x + 0.4, z0: z - 1.6, z1: z + 1.6 },
     };
     this.checkouts.push(k);
@@ -389,7 +395,7 @@ export class Market {
       this.w.celebrate(obj, this.toWorld(v(u.x, u.z)));
       this.w.hud.toast(TR.unlocked(this.unlockName(u)));
       this.refreshTiles();
-      this.w.onMarketProgress();
+      this.w.onBusinessProgress();
       this.persist();
       writeSave(this.w.data);
     }
@@ -420,7 +426,7 @@ export class Market {
     writeSave(this.w.data);
   }
 
-  hire(id: HireId) {
+  hire(id: HireId, byManager = false) {
     const h = MARKET_HIRES.find((x) => x.id === id)!;
     const n = this.hireCount(id);
     const cost = hireCost(h, n);
@@ -429,13 +435,14 @@ export class Market {
     this.w.data.money -= cost;
     this.ms.hires[id] = n + 1;
     this.spawnStaff(h, true);
-    this.sfx.play('unlock', 1, 0);
-    this.w.hud.toast(TR.hiredToast(TR.hire[id].name));
+    if (!byManager) this.sfx.play('unlock', 1, 0);
+    if (!byManager) this.w.hud.toast(TR.hiredToast(TR.hire[id].name));
+    else if (this.w.area === this) this.w.hud.toast(TR.managerHired(TR.hire[id].name));
     this.w.panel.render();
     writeSave(this.w.data);
   }
 
-  fire(id: HireId) {
+  fire(id: HireId, byManager = false) {
     const h = MARKET_HIRES.find((x) => x.id === id)!;
     const n = this.hireCount(id);
     if (!n) return;
@@ -444,7 +451,8 @@ export class Market {
     if (!s) return;
     s.dismiss(v(-12, 20));
     this.ms.hires[id] = n - 1;
-    this.w.hud.toast(TR.firedToast(TR.hire[id].name));
+    if (!byManager) this.w.hud.toast(TR.firedToast(TR.hire[id].name));
+    else if (this.w.area === this) this.w.hud.toast(TR.managerFired(TR.hire[id].name));
     this.w.panel.render();
     writeSave(this.w.data);
   }
@@ -453,11 +461,50 @@ export class Market {
     const k = h.role === 'cashier' ? this.checkouts.find((c) => c.index === h.counter) ?? null : null;
     if (h.role === 'cashier' && !k) return;
     const i = this.staff.filter((s) => s.role === 'stocker').length;
-    const home = k ? k.cashierZone.clone() : v(9.2 + (i % 6) * 1.2, -16.2 + Math.floor(i / 6) * 0.6);
+    const home = k ? k.cashierZone.clone()
+      : h.role === 'manager' ? v(13, 7) : v(9.2 + (i % 6) * 1.2, -16.2 + Math.floor(i / 6) * 0.6);
     const from = walkIn ? v(-13 + Math.random(), 17) : undefined;
-    const s = new MarketStaff(h.role as 'cashier' | 'stocker', k, home, this, from);
+    const s = new MarketStaff(h.role as 'cashier' | 'stocker' | 'manager', k, home, this, from);
     this.staff.push(s);
     this.root.add(s.ch.root);
+  }
+
+  // ---------- the manager ----------
+
+  private mgr = { t: 0, cool: 0, fill: [] as number[], idle: [] as number[], queue: [] as number[] };
+
+  /**
+   * With a manager on the payroll the market staffs itself: a cashier for every
+   * till, more stockers while the shelves run low and the team is busy, one fewer
+   * when they stand around with full shelves. It always keeps a cash reserve.
+   */
+  private manage(dt: number) {
+    if (!this.staff.some((s) => s.role === 'manager' && !s.leaving)) return;
+    const m = this.mgr;
+    m.t += dt;
+    m.cool -= dt;
+    if (m.t < 1) return;
+    m.t = 0;
+    const stockers = this.staff.filter((s) => s.role === 'stocker' && !s.leaving);
+    const push = (a: number[], x: number) => { a.push(x); if (a.length > MANAGER_WINDOW) a.shift(); };
+    push(m.fill, this.segments.reduce((s, x) => s + x.stack.count / x.cap, 0) / this.segments.length);
+    push(m.idle, stockers.length ? stockers.filter((s) => !s.stack.count && !s.wants).length / stockers.length : 0);
+    push(m.queue, this.checkouts.reduce((s, k) => s + k.queue.length, 0));
+    if (m.cool > 0 || m.fill.length < MANAGER_WINDOW / 2) return;
+    const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+    const affordable = (id: HireId) => {
+      const h = MARKET_HIRES.find((x) => x.id === id)!;
+      const n = this.hireCount(id);
+      return n < hireMax(h) && (!h.requires || this.ms.unlocked.includes(h.requires))
+        && this.w.data.money >= hireCost(h, n) + MANAGER_RESERVE;
+    };
+    const act = (fn: () => void) => { fn(); m.cool = MANAGER_COOLDOWN; m.fill = []; m.idle = []; m.queue = []; };
+    const tills: HireId[] = ['cashier', 'checkout2', 'checkout3'];
+    for (const k of this.checkouts) {
+      if (!k.staffCashier && affordable(tills[k.index])) return act(() => this.hire(tills[k.index], true));
+    }
+    if (avg(m.fill) < 0.55 && avg(m.idle) < 0.25 && affordable('stocker')) return act(() => this.hire('stocker', true));
+    if (avg(m.idle) > 0.6 && avg(m.fill) > 0.85 && stockers.length > 1) return act(() => this.fire('stocker', true));
   }
 
   // ---------- shoppers ----------
@@ -537,7 +584,7 @@ export class Market {
       k.playerHere = !!p && dist2(p, k.cashierZone) < 0.8 * 0.8;
       k.serveT -= dt;
       const s = k.queue[0];
-      const present = k.playerHere || !!k.staffCashier?.atPost;
+      const present = k.playerHere || !!k.staffCashier?.atPost || !!k.cover?.atPost;
       if (!s || !s.arrived || !present || k.serveT > 0) continue;
       k.serveT = SCAN_INTERVAL;
       if (s.basket.count) {
@@ -627,8 +674,9 @@ export class Market {
     this.shoppers = this.shoppers.filter((s) => !s.dead);
     for (const s of this.staff) {
       s.update(dt);
-      if (s.role === 'stocker' && !s.leaving) this.interact(s, s.pos);
+      if (s.role !== 'cashier' && !s.leaving && !s.atPost) this.interact(s, s.pos);
     }
+    this.manage(dt);
     for (const s of this.staff.filter((x) => x.gone)) s.ch.root.removeFromParent();
     this.staff = this.staff.filter((s) => !s.gone);
     this.updateCheckouts(dt, p);

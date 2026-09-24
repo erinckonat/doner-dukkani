@@ -153,6 +153,13 @@ export function makeGrocery(kind: 'bread' | 'milk' | 'eggs' | 'pasta' | 'oil' | 
   return g;
 }
 
+/** A folded hotel towel with a gold band. */
+export function makeTowel() {
+  const g = new THREE.Group();
+  g.add(at(box(0.34, 0.09, 0.24, '#FBF8F2', false), 0, 0.045, 0), at(box(0.345, 0.092, 0.05, C.gold, false), 0, 0.046, 0.06));
+  return g;
+}
+
 /** One carried/served item of a product. */
 export function makeProduct(kind: 'doner' | 'burger' | 'fries' | 'shake') {
   switch (kind) {

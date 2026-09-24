@@ -1,5 +1,6 @@
 import { hireCost, hireMax, HR_UPGRADES, MACHINE_PRICE, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type ProductKind, type ShopId, type UpgradeId } from '../config/balance';
 import type { Game } from '../Game';
+import type { Hotel } from '../Hotel';
 import type { Market } from '../Market';
 import type { Shop } from '../Shop';
 import type { DeskKind } from '../stations/Props';
@@ -15,7 +16,7 @@ export class UpgradePanel {
   private refreshT = 0;
   private kind: DeskKind = 'office';
   /** The shop (or the market) whose desk the player is at. */
-  private s: Shop | Market | null = null;
+  private s: Shop | Market | Hotel | null = null;
   /** Hire row whose "Çıkar" was pressed once and now asks for confirmation. */
   private confirmFire: HireId | null = null;
   private confirmTimer = 0;
@@ -35,13 +36,13 @@ export class UpgradePanel {
     });
   }
 
-  open(kind: DeskKind, shop: Shop | Market) {
+  open(kind: DeskKind, shop: Shop | Market | Hotel) {
     if (this.isOpen && this.kind === kind && this.s === shop) return;
     this.kind = kind;
     this.s = shop;
     this.isOpen = true;
     this.title.textContent = kind === 'office' ? TR.panelTitle : TR.hrTitle;
-    this.sub.textContent = kind === 'office' ? TR.panelSub : shop.id === 'market' ? TR.market.hrSub : TR.hrSub;
+    this.sub.textContent = kind === 'office' ? TR.panelSub : shop.id === 'market' ? TR.market.hrSub : shop.id === 'hotel' ? TR.hotel.hrSub : TR.hrSub;
     this.render();
     this.wrap.hidden = false;
   }

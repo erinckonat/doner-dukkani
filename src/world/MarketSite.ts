@@ -15,6 +15,12 @@ export interface MarketSite {
   lotRect: Rect;
   /** Where the "for sale" tile sits (world). */
   tile: { x: number; z: number };
+  /** The garden east of the side street, for sale as the hotel's plot… */
+  garden: THREE.Group;
+  gardenRect: Rect;
+  /** …and what stays out of bounds around the hotel once it's built. */
+  hotelRing: Rect[];
+  hotelTile: { x: number; z: number };
 }
 
 const OX = MARKET_ORIGIN.x;
@@ -47,17 +53,41 @@ export function buildMarketSite(scene: THREE.Scene): MarketSite {
   // West side: a hedge from the flats to the plaza.
   hedge(scene, x0 - 0.9, x0 - 0.2, top + 4.2, kerb);
   rects.push({ x0: 79.5, x1: x0 - 0.2, z0: top + 4.2, z1: kerb });
-  // East side: a small garden with trees behind a hedge.
+  // East side: a hedge along the street, and a small garden (the hotel's plot, for sale).
   const gx1 = OX + MARKET.halfW + 2;
-  scene.add(at(plane(gx1 - x1, kerb - (top + 4.2), '#9BB07A', 0), (x1 + gx1) / 2, -0.01, (top + 4.2 + kerb) / 2));
   hedge(scene, x1 + 0.2, x1 + 0.9, top + 4.2, kerb);
-  hedge(scene, x1 + 0.2, gx1, kerb - 0.7, kerb);
-  rects.push({ x0: x1 + 0.2, x1: gx1 + 2, z0: top + 4.2, z1: kerb });
+  rects.push({ x0: x1 + 0.2, x1: x1 + 0.9, z0: top + 4.2, z1: kerb });
+  const garden = new THREE.Group();
+  garden.add(at(plane(gx1 - x1, kerb - (top + 4.2), '#9BB07A', 0), (x1 + gx1) / 2, -0.01, (top + 4.2 + kerb) / 2));
+  const kerbHedge = box(gx1 - x1 - 1.1, 0.9, 0.7, C.leafDark);
+  kerbHedge.position.set((x1 + 0.9 + gx1) / 2, 0.45, kerb - 0.35);
+  garden.add(kerbHedge);
   for (const [x, z] of [[95, -6], [101, -2], [107, -7], [111, 3], [97, 4]]) {
     const t = makeTree();
     t.rotation.y = x;
-    scene.add(at(t, x, 0, z));
+    garden.add(at(t, x, 0, z));
   }
+  const hotelBoard = canvasTexture(512, 256, (ctx) => {
+    ctx.fillStyle = C.cream;
+    roundRect(ctx, 8, 8, 496, 240, 28);
+    ctx.fill();
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = '#C9A24A';
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#2E3A55';
+    ctx.font = '800 84px "Baloo 2", sans-serif';
+    ctx.fillText(TR.city.forSale, 256, 118);
+    ctx.fillStyle = C.dark;
+    ctx.font = '700 40px "Baloo 2", sans-serif';
+    ctx.fillText(TR.hotel.forSaleSub, 256, 190);
+  }).tex;
+  const hb = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.5), new THREE.MeshStandardMaterial({ map: hotelBoard, roughness: 0.9 }));
+  hb.position.set(109, 2.1, kerb - 1.2);
+  garden.add(hb, at(box(3.2, 1.7, 0.1, C.woodDark), 109, 2.1, kerb - 1.27));
+  garden.add(at(cyl(0.07, 0.07, 1.4, 6, C.woodDark), 107.8, 0.7, kerb - 1.3), at(cyl(0.07, 0.07, 1.4, 6, C.woodDark), 110.2, 0.7, kerb - 1.3));
+  scene.add(garden);
+  const gardenRect: Rect = { x0: x1 + 0.9, x1: gx1 + 2, z0: top + 4.2, z1: kerb };
   // Behind the shop row and beside the market: out of bounds.
   rects.push(
     { x0: CITY.minX - 10, x1: OX - MARKET.halfW - 0.3, z0: CITY.minZ - 10, z1: top + 4.2 },
@@ -117,6 +147,15 @@ export function buildMarketSite(scene: THREE.Scene): MarketSite {
 
   return {
     rects,
+    garden,
+    gardenRect,
+    // Around the hotel's walls (x 92..117, z -10.5..8.5): the gap behind and beside it.
+    hotelRing: [
+      { x0: x1 + 0.9, x1: gx1 + 2, z0: top + 4.2, z1: -10.5 },
+      { x0: 117.3, x1: gx1 + 2, z0: top + 4.2, z1: kerb },
+      { x0: x1 + 0.9, x1: 91.9, z0: top + 4.2, z1: kerb },
+    ],
+    hotelTile: { x: 104.5, z: 11.8 },
     lot,
     lotRect: { x0: OX - W - 0.3, x1: OX + W + 0.3, z0: OZ + MARKET.stock.z0, z1: top - 0.1 },
     tile: { x: OX - 6, z: top + 2 },
