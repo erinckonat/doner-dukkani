@@ -34,6 +34,7 @@ export const TR = {
     idle: (name: string, perMin: string) => `${name} sen yokken dakikada ${perMin} kazanıyor`,
   },
   role: {
+    manager: 'Müdür',
     cashier: 'Kasiyer',
     carrier: 'Garson',
     cleaner: 'Temizlikçi',
@@ -52,6 +53,7 @@ export const TR = {
   hrSub: 'Eleman al, işler sen yokken de dönsün.',
   hrDecal: 'PERSONEL',
   hire: {
+    manager: { name: 'Müdür', desc: 'Eksikleri kapatır; gerekirse eleman alır ya da çıkarır.' },
     cashier: { name: 'Kasiyer', desc: 'Kasada durur, müşterilere servis yapar.' },
     carrier: { name: 'Garson', desc: 'Eksik ürünü tezgaha taşır, boşken masaları toplar.' },
     cleaner: { name: 'Temizlikçi', desc: 'Masaları toplar, boşken ürün taşır.' },
@@ -64,6 +66,9 @@ export const TR = {
   staffCountOpen: (n: number) => `${n} kişi`,
   hiredToast: (name: string) => `${name} işe başladı!`,
   firedToast: (name: string) => `${name} işten çıkarıldı`,
+  managerHired: (name: string) => `Müdür yeni bir ${name.toLocaleLowerCase('tr-TR')} işe aldı`,
+  managerFired: (name: string) => `Müdür bir ${name.toLocaleLowerCase('tr-TR')} çıkardı: işi azdı`,
+  bossSeat: 'PATRON',
   fireBtn: 'Çıkar',
   fireConfirm: 'Emin misin?',
   staffSection: 'Personel Gelişimi',

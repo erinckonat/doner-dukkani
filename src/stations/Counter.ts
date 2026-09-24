@@ -58,6 +58,8 @@ export class Counter {
   spawn: THREE.Vector3;
   rect: Rect;
   staffCashier: Staff | null = null;
+  /** Someone standing in at the register (the manager) while it has no cashier. */
+  cover: Staff | null = null;
   playerHere = false;
   serveT = 0;
 
@@ -124,6 +126,6 @@ export class Counter {
   }
 
   get cashierPresent() {
-    return this.playerHere || (this.staffCashier?.atPost ?? false);
+    return this.playerHere || !!this.staffCashier?.atPost || !!this.cover?.atPost;
   }
 }

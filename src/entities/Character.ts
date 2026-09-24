@@ -13,6 +13,9 @@ const G = {
   cap: new THREE.CylinderGeometry(0.25, 0.265, 0.12, 8),
   brim: new THREE.BoxGeometry(0.3, 0.03, 0.2),
   apron: new THREE.BoxGeometry(0.36, 0.4, 0.04),
+  collar: new THREE.BoxGeometry(0.3, 0.1, 0.12),
+  tie: new THREE.BoxGeometry(0.08, 0.34, 0.03),
+  lapel: new THREE.BoxGeometry(0.1, 0.36, 0.03),
 };
 
 export interface Look {
@@ -23,6 +26,9 @@ export interface Look {
   hat?: 'chef' | 'cap';
   hatColor?: string;
   apron?: string;
+  /** Collar colour (shirt under a jacket) and tie colour, for suits. */
+  collar?: string;
+  tie?: string;
 }
 
 /** Low-poly figure built from primitives. Faces +z locally. */
@@ -51,6 +57,12 @@ export class Character {
     this.root.add(this.model);
     this.model.add(m(G.body, look.shirt, 0, 0.9, 0));
     if (look.apron) this.model.add(m(G.apron, look.apron, 0, 0.78, 0.24));
+    if (look.collar) {
+      // Open jacket: shirt showing down the middle, collar at the neck.
+      this.model.add(m(G.collar, look.collar, 0, 1.22, 0.14, false));
+      this.model.add(m(G.lapel, look.collar, 0, 1.02, 0.25, false));
+    }
+    if (look.tie) this.model.add(m(G.tie, look.tie, 0, 1.0, 0.27, false));
     this.model.add(m(G.head, look.skin, 0, 1.5, 0));
     this.model.add(m(G.eye, '#2A1E18', -0.09, 1.53, 0.225, false), m(G.eye, '#2A1E18', 0.09, 1.53, 0.225, false));
     if (look.hair) {

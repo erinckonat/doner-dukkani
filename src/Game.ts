@@ -357,6 +357,22 @@ export class Game {
     this.deskInside = kind;
   }
 
+  /** Standing still at the boss's armchair (empty-handed) sits you down; moving gets you up. */
+  private updateSeat(move: { x: number; z: number }) {
+    const s = this.active;
+    const seat = s?.office?.seat;
+    const p = this.player;
+    const w = seat && s && this.inPlot(s) ? s.toWorld(seat.pos) : null;
+    const still = move.x === 0 && move.z === 0;
+    if (w && still && !p.stack.count && dist2(p.pos, w) < 0.7 * 0.7) {
+      p.pos.set(w.x, 0, w.z);
+      p.ch.setYaw(seat!.yaw);
+      p.ch.sitting = true;
+    } else {
+      p.ch.sitting = false;
+    }
+  }
+
   /** Player collision: city buildings plus every shop's current obstacles. */
   private updateRects() {
     const key = this.shops.map((s) => s.rectsVersion).join();
@@ -401,6 +417,7 @@ export class Game {
     this.updateRects();
     const move = this.activity ? { x: 0, z: 0 } : this.input.move;
     this.player.update(dt, move, this.playerSpeed, this.rects);
+    this.updateSeat(move);
 
     const active = this.activeShop();
     if (active !== this.active) {

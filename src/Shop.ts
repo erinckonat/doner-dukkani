@@ -39,6 +39,13 @@ export interface Carrier {
 /** Share of a machine's top output that actually sells, for income estimates. */
 export const SELL_THROUGH = 0.6;
 
+/** Manager: seconds of history it looks at, pause between decisions, cash it never spends. */
+const MANAGER_WINDOW = 30;
+const MANAGER_COOLDOWN = 25;
+const MANAGER_RESERVE = 20000;
+/** Where the manager waits when there's nothing to do (near the register). */
+const MANAGER_HOME: [number, number] = [-5.5, 3.5];
+
 /** A shop's state within the save: döner at the top level, others nested. */
 export function shopState(data: SaveData, id: ShopId): ShopState | undefined {
   return id === 'doner' ? data : data[id];
@@ -86,6 +93,8 @@ export class Shop {
   rectsVersion = 0;
   served = 0;
 
+  /** The manager's view of the last half-minute: samples each second, decides every so often. */
+  private mgr = { t: 0, cool: 0, owed: [] as number[], dirty: [] as number[], idle: [] as number[] };
   private products: ProductKind[];
   private level: LevelRefs;
   private spawnT = [1.5, 3];
@@ -169,7 +178,7 @@ export class Shop {
 
   hireCount(id: HireId) { return this.ss.hires[id] ?? 0; }
 
-  hire(id: HireId) {
+  hire(id: HireId, byManager = false) {
     const h = this.def.hires.find((x) => x.id === id)!;
     const n = this.hireCount(id);
     const cost = hireCost(h, n);
@@ -178,14 +187,15 @@ export class Shop {
     this.w.data.money -= cost;
     this.ss.hires[id] = n + 1;
     this.spawnStaff(h, true);
-    this.sfx.play('unlock', 1, 0);
-    this.w.hud.toast(TR.hiredToast(TR.hire[id].name));
+    if (!byManager) this.sfx.play('unlock', 1, 0);
+    if (!byManager) this.w.hud.toast(TR.hiredToast(TR.hire[id].name));
+    else if (this.w.activeShop() === this) this.w.hud.toast(TR.managerHired(TR.hire[id].name));
     this.w.panel.render();
     writeSave(this.w.data);
   }
 
   /** Let one of them go (the most recent hire). Nobody gets the hiring cost back. */
-  fire(id: HireId) {
+  fire(id: HireId, byManager = false) {
     const h = this.def.hires.find((x) => x.id === id)!;
     const n = this.hireCount(id);
     if (!n) return;
@@ -195,7 +205,8 @@ export class Shop {
     if (!s) return;
     s.dismiss();
     this.ss.hires[id] = n - 1;
-    this.w.hud.toast(TR.firedToast(TR.hire[id].name));
+    if (!byManager) this.w.hud.toast(TR.firedToast(TR.hire[id].name));
+    else if (this.w.activeShop() === this) this.w.hud.toast(TR.managerFired(TR.hire[id].name));
     this.w.panel.render();
     writeSave(this.w.data);
   }
@@ -206,6 +217,7 @@ export class Shop {
     if (h.role === 'cashier' && !counter) return;
     let home: THREE.Vector3;
     if (counter) home = counter.cashierZone.clone();
+    else if (h.role === 'manager') home = new THREE.Vector3(MANAGER_HOME[0], 0, MANAGER_HOME[1]);
     else {
       // Idle spots cycle; a big team spreads out a little so they don't stand in one another.
       const spots = STAFF_HOMES[h.role as 'carrier' | 'cleaner'];
@@ -309,7 +321,7 @@ export class Shop {
       ...this.counters.map((k) => k.rect),
       ...this.tables.map((t) => t.rect),
       this.bin.rect,
-      ...[this.office, this.hr].filter((d): d is Desk => !!d).map((d) => d.rect),
+      ...[this.office, this.hr].filter((d): d is Desk => !!d).flatMap((d) => d.rects),
     ];
     this.nav.rebuild(this.rects);
     this.rectsVersion++;
@@ -580,6 +592,52 @@ export class Shop {
   /** Items still owed across the queue (for tests and staff heuristics). */
   get demand() { return this.counters.reduce((n, k) => n + k.queue.reduce((m, q) => m + orderTotal(q.order), 0), 0); }
 
+  // ---------- the manager ----------
+
+  /**
+   * With a manager on the payroll the shop staffs itself: every register gets a
+   * cashier, a growing backlog gets another waiter, lingering mess gets a cleaner,
+   * and a team standing idle loses a waiter. Always keeps a cash reserve.
+   */
+  private manage(dt: number) {
+    if (!this.staff.some((s) => s.role === 'manager' && !s.leaving)) return;
+    const m = this.mgr;
+    m.t += dt;
+    m.cool -= dt;
+    if (m.t < 1) return;
+    m.t = 0;
+    const workers = this.staff.filter((s) => (s.role === 'carrier' || s.role === 'cleaner') && !s.leaving);
+    const owed = this.products.reduce((n, kind) =>
+      n + this.counters.reduce((a, k) => a + Math.max(0, this.queueDemand(kind, k) - this.counterStock(kind, k)), 0), 0);
+    const idle = workers.length ? workers.filter((s) => !s.stack.count && !s.wants).length / workers.length : 0;
+    const push = (a: number[], v: number) => { a.push(v); if (a.length > MANAGER_WINDOW) a.shift(); };
+    push(m.owed, owed);
+    push(m.dirty, this.tables.filter((t) => t.dirty).length);
+    push(m.idle, idle);
+    if (m.cool > 0 || m.owed.length < MANAGER_WINDOW / 2) return;
+
+    const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+    const affordable = (id: HireId) => {
+      const h = this.def.hires.find((x) => x.id === id)!;
+      const n = this.hireCount(id);
+      return n < hireMax(h) && (!h.requires || this.ss.unlocked.includes(h.requires))
+        && this.w.data.money >= hireCost(h, n) + MANAGER_RESERVE;
+    };
+    const act = (fn: () => void) => {
+      fn();
+      m.cool = MANAGER_COOLDOWN;
+      m.owed = []; m.dirty = []; m.idle = [];
+    };
+    const registers: HireId[] = ['cashier', 'cashierWindow'];
+    for (const [i, k] of this.counters.entries()) {
+      if (!k.staffCashier && affordable(registers[i])) return act(() => this.hire(registers[i], true));
+    }
+    const carriers = this.hireCount('carrier');
+    if (avg(m.owed) > 3 + workers.length && avg(m.idle) < 0.2 && affordable('carrier')) return act(() => this.hire('carrier', true));
+    if (avg(m.dirty) >= 2 && affordable('cleaner')) return act(() => this.hire('cleaner', true));
+    if (avg(m.idle) > 0.5 && avg(m.owed) < 2 && carriers > 1) return act(() => this.fire('carrier', true));
+  }
+
   // ---------- frame ----------
 
   /** `player` is the player's world position; `playerHere` whether they're inside this shop's plot. */
@@ -597,6 +655,7 @@ export class Shop {
     this.updateCounters(dt, playerHere ? p : new THREE.Vector3(1e4, 0, 1e4));
     this.updateCustomers(dt);
     this.updateOnline(dt);
+    this.manage(dt);
     if (playerHere) this.updateTiles(dt, p);
   }
 }

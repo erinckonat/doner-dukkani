@@ -8,6 +8,7 @@ import { HR_POS, OFFICE_POS, SPIT_POS, SPIT_ZONE_DZ, TABLE_POS } from '../world/
  * - Table + 2 chairs: 2,880 TL (basic) to 14,000 TL (café set).
  * - Döner spit: ~10,000 TL small gas unit; 51,200 TL industrial 8-radiant (Atalay ADG-8S).
  * - Fryer: Remta R92 3+3 L twin electric 7,290 TL. Milkshake mixer: Macap F4D twin-spindle 37,536 TL.
+ * - Manager: restaurant manager ~39,800 TL/month in Istanbul (Eleman.net, 2026); hired for one month's pay.
  * - Staff: net minimum wage 28,075 TL; employer cost 40,214 TL per month. Hiring costs half a
  *   month's wage up front (~14,000 TL), rising to a full month for later hires.
  * Production is a little faster than real life so the bigger numbers keep the same pace.
@@ -102,7 +103,7 @@ export const priceOf = (kind: ProductKind, priceLevel: number) =>
 // ---------- shops ----------
 
 export type ShopId = 'doner' | 'burger';
-export type StaffRole = 'cashier' | 'carrier' | 'cleaner';
+export type StaffRole = 'manager' | 'cashier' | 'carrier' | 'cleaner';
 export type UnlockKind = 'table' | 'producer' | 'office' | 'hr' | 'window';
 
 export interface UnlockDef {
@@ -114,7 +115,7 @@ export interface UnlockDef {
   index?: number;
 }
 
-export type HireId = 'cashier' | 'carrier' | 'cleaner' | 'cashierWindow';
+export type HireId = 'manager' | 'cashier' | 'carrier' | 'cleaner' | 'cashierWindow';
 
 export interface HireDef {
   id: HireId;
@@ -172,6 +173,7 @@ const driveWindow = (cost: number): UnlockDef => ({ id: 'window', kind: 'window'
 
 /** Staff hired at the HR desk, in the order the panel lists them. */
 const STAFF: HireDef[] = [
+  { id: 'manager', role: 'manager', costs: [40000] },
   { id: 'cashier', role: 'cashier', costs: [14000], counter: 0 },
   // As many waiters as you like: after the third, each costs a full month's wage.
   { id: 'carrier', role: 'carrier', costs: [14000, 21000, 28000], max: 30 },

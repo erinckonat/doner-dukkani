@@ -16,7 +16,7 @@ const SPARE_EXTRA = 4;
 /** At most this many workers wait at one machine for the same product. */
 const PER_MACHINE = 2;
 
-const SHIRT: Record<StaffRole, string> = { cashier: C.gold, carrier: C.gold, cleaner: '#5E8C7A' };
+const SHIRT: Record<StaffRole, string> = { manager: '#8FA6BF', cashier: C.gold, carrier: C.gold, cleaner: '#5E8C7A' };
 
 type Task = { kind: 'fetch'; product: ProductKind } | { kind: 'clean'; table: Table } | null;
 
@@ -45,7 +45,9 @@ export class Staff extends Agent {
 
   /** `from` is where they appear (the door for a fresh hire); `home` is where they wait when idle. */
   constructor(public role: StaffRole, public counter: Counter | null, private home: THREE.Vector3, private g: Shop, from?: THREE.Vector3) {
-    super({ shirt: SHIRT[role], pants: C.dark, skin: pick(LOOKS.skins), hair: pick(LOOKS.hair), hat: 'cap', hatColor: C.primary, apron: role === 'cleaner' ? C.cream : undefined });
+    super(role === 'manager'
+      ? { shirt: SHIRT.manager, pants: '#3A3F4A', skin: pick(LOOKS.skins), hair: pick(LOOKS.hair), tie: C.gold }
+      : { shirt: SHIRT[role], pants: C.dark, skin: pick(LOOKS.skins), hair: pick(LOOKS.hair), hat: 'cap', hatColor: C.primary, apron: role === 'cleaner' ? C.cream : undefined });
     this.stack = new ItemStack(this.ch.hand, g.flyer, () => g.staffCap);
     const products = g.def.producers.map((p) => p.product);
     this.accepts = new Set<ItemKind>(role === 'cashier' ? [] : [...products, 'trash']);
@@ -67,6 +69,7 @@ export class Staff extends Agent {
     if (this.think > 0) return;
     this.think = 0.25;
     if (this.role === 'cashier') this.thinkCashier(dt);
+    else if (this.role === 'manager') this.thinkManager(dt);
     else this.thinkWorker();
   }
 
@@ -77,6 +80,7 @@ export class Staff extends Agent {
     this.wants = null;
     this.stack.clear();
     if (this.counter?.staffCashier === this) this.counter.staffCashier = null;
+    for (const k of this.g.counters) if (k.cover === this) k.cover = null;
     this.goTo(this.g.nav, new THREE.Vector3(STAFF_ENTRY[0], 0, STAFF_ENTRY[1]));
   }
 
@@ -84,6 +88,26 @@ export class Staff extends Agent {
     const k = this.counter!;
     this.atPost = this.moveTo(this.g.nav, k.cashierZone);
     if (this.atPost) this.ch.face(k.def.dir[0], k.def.dir[1], dt * 20);
+  }
+
+  /**
+   * The manager steps in at any register that has customers but nobody serving,
+   * and otherwise pitches in like everyone else. (Hiring and firing is the shop's
+   * `manage`, which runs while a manager is on the payroll.)
+   */
+  private thinkManager(dt: number) {
+    const uncovered = this.stack.count ? undefined : this.g.counters.find((k) =>
+      k.queue.length && !k.playerHere && !k.staffCashier?.atPost && (!k.cover || k.cover === this));
+    for (const k of this.g.counters) if (k.cover === this && k !== uncovered) k.cover = null;
+    if (uncovered) {
+      uncovered.cover = this;
+      this.wants = null;
+      this.atPost = this.moveTo(this.g.nav, uncovered.cashierZone);
+      if (this.atPost) this.ch.face(uncovered.def.dir[0], uncovered.def.dir[1], dt * 20);
+      return;
+    }
+    this.atPost = false;
+    this.thinkWorker();
   }
 
   // ---------- shared view of the shop ----------
