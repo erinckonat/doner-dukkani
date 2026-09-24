@@ -595,8 +595,8 @@ export class Market {
       // Everything scanned: pay (into the account, the player's share of it) and go.
       const tips = 1 + buffAmount(this.w.data.buffs, 'tips');
       const total = s.bought.reduce((sum, kind) => sum + GROCERIES[kind].price, 0);
-      const amount = Math.round(total * tips * this.share);
-      this.w.data.money += amount;
+      const amount = Math.round(total * tips * this.w.bonusMult() * this.share);
+      this.w.sale(amount);
       const at = this.toWorld(k.serve.clone());
       at.y = 2.2;
       this.w.floats.spawn(at, `+${fmtMoney(amount)}`);
@@ -667,7 +667,7 @@ export class Market {
     const p = here ? this.toLocal(player) : null;
     this.spawnT -= dt;
     if (this.spawnT <= 0) {
-      this.spawnT = shopperInterval(rowsOf(this.ms).length, this.checkouts.length) * (0.8 + Math.random() * 0.4);
+      this.spawnT = (shopperInterval(rowsOf(this.ms).length, this.checkouts.length) * (0.8 + Math.random() * 0.4)) / this.w.events.footfall;
       if (this.shoppers.length < MAX_SHOPPERS) this.spawnShopper();
     }
     for (const s of this.shoppers) s.update(dt);

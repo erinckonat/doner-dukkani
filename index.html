@@ -23,12 +23,24 @@
           </svg>
           <span id="money-val">₺0</span>
         </div>
+        <button class="goal" id="goal" type="button">
+          <span class="goal-top"><b id="goal-label">Hedef 1</b><span id="goal-reward"></span></span>
+          <span class="goal-text" id="goal-text"></span>
+          <span class="bar"><i id="goal-fill"></i></span>
+        </button>
         <div class="buffs" id="buffs" aria-live="polite"></div>
       </div>
 
-      <div class="progress" aria-live="polite">
-        <span id="prog-label">Dükkan %0</span>
-        <div class="bar"><i id="prog-fill"></i></div>
+      <div class="hud-center">
+        <div class="progress" aria-live="polite">
+          <span id="prog-label">Dükkan %0</span>
+          <div class="bar"><i id="prog-fill"></i></div>
+        </div>
+        <div class="event" id="event" role="status" hidden>
+          <svg id="event-icon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+          <span class="event-body"><b id="event-name"></b><small id="event-note"></small></span>
+          <span class="event-time" id="event-time"></span>
+        </div>
       </div>
 
       <div class="hud-actions">
@@ -93,6 +105,21 @@
           </button>
         </header>
         <ul id="activity-list"></ul>
+      </section>
+    </div>
+
+    <div class="panel-wrap" id="goals-panel" hidden>
+      <section class="panel" role="dialog" aria-labelledby="goals-title">
+        <header>
+          <div>
+            <h2 id="goals-title">Hedefler</h2>
+            <p class="sub">Her hedef bir sonrakini açar. Bitince karta dokun, ödülünü al.</p>
+          </div>
+          <button class="icon-btn small" id="goals-close" type="button" aria-label="Kapat">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </header>
+        <ul class="plain-list" id="goals-list"></ul>
       </section>
     </div>
 

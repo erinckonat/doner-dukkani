@@ -7,7 +7,7 @@ import { Sfx } from './core/Audio';
 import { Flyer } from './core/Flyer';
 import { Input } from './core/Input';
 import type { Rect } from './core/Nav';
-import { freshShop, loadSave, writeSave, type SaveData } from './core/Save';
+import { freshShop, freshStats, loadSave, writeSave, type SaveData } from './core/Save';
 import { easeOutQuart, Tweens } from './core/Tween';
 import { dist2 } from './entities/Agent';
 import { Ambient } from './entities/Ambient';
@@ -18,9 +18,13 @@ import { Shop, shopAssets, staffedIncome } from './Shop';
 import type { DeskKind } from './stations/Props';
 import { UnlockTile, type TileDef } from './stations/UnlockTile';
 import { Confetti, FloatingText, makeArrow } from './systems/Effects';
+import { Events } from './systems/Events';
 import { Exchange, type OwnId } from './systems/Exchange';
+import { Rain } from './systems/Weather';
 import { ActivityPanel } from './ui/ActivityPanel';
 import { BorsaPanel } from './ui/BorsaPanel';
+import { EventBanner } from './ui/EventBanner';
+import { GoalCard } from './ui/GoalCard';
 import { fmtMoney, Hud } from './ui/Hud';
 import { TR } from './ui/strings.tr';
 import { SavePanel } from './ui/SavePanel';
@@ -62,6 +66,8 @@ export class Game {
   hotel: Hotel | null = null;
   exchange: Exchange;
   borsa: BorsaPanel;
+  goals: GoalCard;
+  events = new Events(this);
   floats: FloatingText;
   cashMultiplierUntil = 0;
   time = 0;
@@ -70,6 +76,9 @@ export class Game {
   private city: CityRefs;
   private ambient: Ambient;
   private sun: THREE.DirectionalLight;
+  private hemi: THREE.HemisphereLight;
+  private rain: Rain;
+  private eventBanner = new EventBanner();
   private rects: Rect[] = [];
   private rectsKey = '';
   private plotTile: UnlockTile | null = null;
@@ -99,7 +108,8 @@ export class Game {
 
     this.scene.background = new THREE.Color('#E8D9BF');
     this.scene.fog = new THREE.Fog('#E8D9BF', 50, 95);
-    this.scene.add(new THREE.HemisphereLight('#FFF4E0', '#B89A7A', 1.25));
+    this.hemi = new THREE.HemisphereLight('#FFF4E0', '#B89A7A', 1.25);
+    this.scene.add(this.hemi);
     // The sun follows the player so shadows stay sharp across the whole street.
     const sun = (this.sun = new THREE.DirectionalLight('#FFE8C8', 1.9));
     sun.castShadow = true;
@@ -111,6 +121,7 @@ export class Game {
 
     this.data = initialSave ?? loadSave();
     delete this.data.shop; // shops are side by side now; nothing to travel between
+    this.data.stats ??= freshStats();
     this.sfx.enabled = this.data.sound;
 
     this.city = buildCity(this.scene);
@@ -135,6 +146,7 @@ export class Game {
     this.floats = new FloatingText(this.scene, this.tweens, this.reduced);
     this.arrow = makeArrow();
     this.scene.add(this.arrow.group);
+    this.rain = new Rain(this.scene);
 
     this.shops.push(new Shop(this, 'doner', SHOP_ORIGIN_X.doner));
     if (this.data.burger) this.openBurgerShop(false);
@@ -161,6 +173,7 @@ export class Game {
     });
     this.data.exchange = this.exchange.s;
     this.borsa = new BorsaPanel(this);
+    this.goals = new GoalCard(this);
 
     this.grantOffline();
 
@@ -186,6 +199,31 @@ export class Game {
   }
 
   addMoney(v: number) { this.data.money += v; }
+
+  /** Money taken from a customer: counts towards the lifetime takings (and a served order). */
+  sale(amount: number, customer = true) {
+    this.data.money += amount;
+    const st = (this.data.stats ??= freshStats());
+    st.earned += amount;
+    if (customer) st.served++;
+  }
+
+  /** Multiplier on every sale: a rewarded double-cash minute, payday. */
+  bonusMult() {
+    return (performance.now() < this.cashMultiplierUntil ? 2 : 1) * this.events.cashMul;
+  }
+
+  celebrateAtPlayer() {
+    if (!this.reduced) this.confetti.burst(this.player.pos);
+  }
+
+  closePanels() {
+    this.panel.close();
+    this.savePanel.close();
+    this.activityPanel.close();
+    this.borsa.close();
+    this.goals?.close();
+  }
 
   save() {
     this.market?.persist();
@@ -358,6 +396,7 @@ export class Game {
     const pad = this.city.pads.find((p) => p.biz === biz);
     if (this.activity || !pad || this.data.money < act.price) return;
     this.data.money -= act.price;
+    (this.data.stats ??= freshStats()).visits++;
     this.activity = { biz, act, t: 0, pad };
     this.activityPanel.close();
     this.player.ch.root.visible = false;
@@ -400,6 +439,7 @@ export class Game {
     if (this.padHold < 0.4) return;
     this.panel.close();
     this.savePanel.close();
+    this.goals.close();
     // The bank's door leads to the stock exchange.
     if (pad.biz.kind === 'bank') this.borsa.open();
     else this.activityPanel.open(pad.biz);
@@ -483,6 +523,7 @@ export class Game {
     if (kind && kind !== this.deskInside) {
       this.savePanel.close();
       this.activityPanel.close();
+      this.goals.close();
       this.panel.open(kind, m ?? s);
     }
     if (!kind && this.deskInside) this.panel.close();
@@ -529,6 +570,20 @@ export class Game {
     const kitchen = Math.max(0, Math.min(1, 1 - (near - 1) / 10));
     const crowd = this.inPlot(s) ? s.crowd : Math.min(4, s.crowd);
     this.sfx.update(dt, crowd, kitchen, s.producers.length);
+  }
+
+  private static readonly SKY = new THREE.Color('#E8D9BF');
+  private static readonly SKY_RAIN = new THREE.Color('#A9ADAE');
+
+  /** Rain greys the sky and dims the sun; clear weather eases it back. */
+  private updateWeather(dt: number) {
+    this.rain.update(dt, this.events.raining, this.camTarget, this.reduced);
+    const k = this.rain.k;
+    (this.scene.background as THREE.Color).copy(Game.SKY).lerp(Game.SKY_RAIN, k);
+    this.scene.fog!.color.copy(this.scene.background as THREE.Color);
+    this.sun.intensity = 1.9 * (1 - 0.45 * k);
+    this.hemi.intensity = 1.25 * (1 - 0.2 * k);
+    this.sfx.setRain(k);
   }
 
   private resize = () => {
@@ -602,7 +657,11 @@ export class Game {
     this.tweens.update(dt);
     this.confetti.update(dt);
     this.updateTutorial();
+    this.events.update(dt, this.data.tut >= TUTORIAL_STEPS);
+    this.eventBanner.update(this.events);
+    this.goals.update(dt);
     this.updateCamera(dt);
+    this.updateWeather(dt);
     this.hud.setMoney(this.data.money);
     this.updateBuffChips(dt);
     this.panel.update(dt);

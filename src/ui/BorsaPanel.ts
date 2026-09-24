@@ -42,7 +42,10 @@ export class BorsaPanel {
       switch (btn.dataset.act) {
         case 'buy': {
           const n = Math.floor(Number(btn.dataset.amt) / (x.price(id) * (1 + COMMISSION)));
-          if (x.buy(id, n)) this.g.sfx.play('register', 1, 0);
+          if (x.buy(id, n)) {
+            this.g.sfx.play('register', 1, 0);
+            this.g.data.stats!.trades++;
+          }
           break;
         }
         case 'sell': {

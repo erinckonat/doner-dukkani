@@ -27,6 +27,7 @@ export class SavePanel {
 
   open() {
     this.g.panel.close();
+    this.g.goals.close();
     this.code.hidden = true;
     this.input.value = '';
     this.reset();

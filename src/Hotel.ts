@@ -819,8 +819,8 @@ export class Hotel {
     this.leaveQueue(g);
     g.checkIn(room);
     const tips = 1 + buffAmount(this.w.data.buffs, 'tips');
-    const amount = Math.round(this.roomPrice(room) * tips * this.share);
-    this.w.data.money += amount;
+    const amount = Math.round(this.roomPrice(room) * tips * this.w.bonusMult() * this.share);
+    this.w.sale(amount);
     const at = this.toWorld(this.serve.clone());
     at.y = 2.3;
     this.w.floats.spawn(at, `+${fmtMoney(amount)}`);
@@ -943,7 +943,7 @@ export class Hotel {
     this.spawnT -= dt;
     if (this.spawnT <= 0) {
       const rooms = this.rooms.filter((r) => r.unlocked).length;
-      this.spawnT = Math.max(3, 12 - rooms * 1.1) * (0.8 + Math.random() * 0.4);
+      this.spawnT = (Math.max(3, 12 - rooms * 1.1) * (0.8 + Math.random() * 0.4)) / this.w.events.footfall;
       if (this.queue.length < RECEPTION_QUEUE) this.spawnGuest();
     }
     for (const g of this.guests) g.update(dt);

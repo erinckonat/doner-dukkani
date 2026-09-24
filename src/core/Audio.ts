@@ -1,4 +1,4 @@
-export type SfxName = 'pickup' | 'drop' | 'serve' | 'register' | 'tick' | 'unlock' | 'trash' | 'order' | 'moto';
+export type SfxName = 'pickup' | 'drop' | 'serve' | 'register' | 'tick' | 'unlock' | 'trash' | 'order' | 'moto' | 'fanfare';
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
@@ -16,6 +16,7 @@ export class Sfx {
   private out!: GainNode;
   private crowd!: GainNode;
   private sizzle!: GainNode;
+  private rainBed!: GainNode;
   private noise!: AudioBuffer;
   private last: Partial<Record<SfxName, number>> = {};
   private crowdLayers: GainNode[] = [];
@@ -98,6 +99,25 @@ export class Sfx {
     this.sizzle.gain.value = 0;
     src.connect(hp).connect(shelf).connect(this.sizzle).connect(this.master);
     src.start();
+
+    // Rain on the awnings: soft band of noise, silent until it rains.
+    const rain = ctx.createBufferSource();
+    rain.buffer = this.noise;
+    rain.loop = true;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 1400;
+    band.Q.value = 0.4;
+    this.rainBed = ctx.createGain();
+    this.rainBed.gain.value = 0;
+    rain.connect(band).connect(this.rainBed).connect(this.master);
+    rain.start(0, 0.7);
+  }
+
+  /** 0..1: how hard it's raining. */
+  setRain(k: number) {
+    if (!this.ctx || !this.rainBed) return;
+    this.rainBed.gain.setTargetAtTime(k * 0.09, this.ctx.currentTime, 0.4);
   }
 
   // ---------- building blocks ----------
@@ -187,6 +207,10 @@ export class Sfx {
         this.tone(55, 1.4, 0.12, { type: 'sawtooth', slideTo: 110 });
         this.tone(110, 1.4, 0.05, { type: 'square', slideTo: 190 });
         this.burst({ dur: 1.2, freq: 300, q: 0.7, vol: 0.08, type: 'lowpass', freqEnd: 900 });
+        break;
+      case 'fanfare': // street event: two bright horn-like stabs
+        [523, 659, 784].forEach((f) => this.tone(f, 0.18, 0.05, { type: 'triangle' }));
+        [659, 831, 988].forEach((f) => this.tone(f, 0.5, 0.06, { type: 'triangle', delay: 0.16 }));
         break;
       case 'unlock': // whoosh + bell arpeggio
         this.burst({ dur: 0.5, freq: 400, q: 0.8, vol: 0.12, freqEnd: 4000 });

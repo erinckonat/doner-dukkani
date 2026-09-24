@@ -5,6 +5,20 @@ import type { ExchangeState } from '../systems/Exchange';
 
 const KEY = 'doner-dukkani-save-v1';
 
+/** Lifetime counters, kept for the goals. */
+export interface Stats {
+  /** TL taken from customers in every business (the player's share). */
+  earned: number;
+  /** Orders, baskets and check-ins paid for. */
+  served: number;
+  online: number;
+  /** Visits to the businesses across the street. */
+  visits: number;
+  trades: number;
+}
+
+export const freshStats = (): Stats => ({ earned: 0, served: 0, online: 0, visits: 0, trades: 0 });
+
 /** Progress in one shop. */
 export interface ShopState {
   unlocked: string[];
@@ -38,6 +52,10 @@ export interface SaveData extends ShopState {
   exchange?: ExchangeState;
   /** Timed boosts from the gym, barber, café and pide salon. */
   buffs?: Buffs;
+  /** Lifetime counters the goals read. */
+  stats?: Stats;
+  /** Goals claimed so far (the index of the current goal). */
+  goal?: number;
   tut: number;
   sound: boolean;
   t: number;

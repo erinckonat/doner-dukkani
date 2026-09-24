@@ -36,6 +36,9 @@ export interface Carrier {
   dropAt?: Counter | null;
 }
 
+/** A celebrity customer pays this many times their order. */
+const VIP_MULT = 5;
+
 /** Share of a machine's top output that actually sells, for income estimates. */
 export const SELL_THROUGH = 0.6;
 
@@ -395,10 +398,15 @@ export class Shop {
     const base = i === 0
       ? Math.max(1.6, 5.5 - 0.7 * n - 0.2 * this.tables.length)
       : Math.max(2.5, 6 - 0.5 * n);
-    return base * (0.8 + Math.random() * 0.4);
+    return (base * (0.8 + Math.random() * 0.4)) / this.w.events.footfall;
   }
 
-  private spawnCustomer(k: Counter) {
+  /** A celebrity joins the main queue, whatever its length: serve them and they pay five times over. */
+  spawnVip() {
+    this.spawnCustomer(this.counters[0], true);
+  }
+
+  private spawnCustomer(k: Counter, vip = false) {
     // Up to 2 of the main product from the start, 3 once the shop has grown a bit.
     const order = this.makeOrder(Math.min(BAL.maxOrder, 2 + Math.floor(this.ss.unlocked.length / 4)));
     if (k.def.drive) {
@@ -408,7 +416,7 @@ export class Shop {
       this.cars.push(car);
       return;
     }
-    const c = new Customer(k, this, order);
+    const c = new Customer(k, this, order, vip);
     c.pos.set(k.spawn.x + (Math.random() - 0.5) * 3, 0, k.spawn.z);
     this.root.add(c.ch.root);
     k.queue.push(c);
@@ -472,11 +480,13 @@ export class Shop {
     const at = new THREE.Vector3();
     if (c instanceof Car) at.copy(this.toWorld(new THREE.Vector3(c.pos.x + 0.9, 1.1, c.pos.z)));
     else (c as Customer).ch.hand.getWorldPosition(at);
-    const mult = (performance.now() < this.w.cashMultiplierUntil ? 2 : 1) * (1 + buffAmount(this.w.data.buffs, 'tips'));
+    const vip = c instanceof Customer && c.vip;
+    const mult = this.w.bonusMult() * (1 + buffAmount(this.w.data.buffs, 'tips')) * (vip ? VIP_MULT : 1);
     // After a public offering, part of the takings belongs to the shareholders.
     const amount = Math.round(this.orderValue(c.order) * mult * this.w.ownerShare(this.id));
-    this.w.data.money += amount;
+    this.w.sale(amount);
     this.w.floats.spawn(at, `+${fmtMoney(amount)}`);
+    if (vip) this.w.events.vipServed(amount);
     this.sfx.play('register', 1, 150);
     this.served++;
     if (c instanceof Car) c.served();
@@ -490,6 +500,7 @@ export class Shop {
   gaveUp(c: QueueMember, head: THREE.Vector3) {
     for (const k of this.counters) this.leaveQueue(k, c);
     if (c instanceof Courier) this.w.hud.toast(TR.patience.courierLeft);
+    if (c instanceof Customer && c.vip) this.w.events.vipLeft();
     this.w.floats.spawn(head, TR.patience.left, 'angry');
   }
 
@@ -510,8 +521,9 @@ export class Shop {
     this.onlineT -= dt;
     const k = this.counters[0];
     if (this.onlineT <= 0) {
-      this.onlineT = o.interval[0] + Math.random() * (o.interval[1] - o.interval[0]);
-      if (this.couriers.length < o.maxActive && k.queue.length < k.def.maxQueue) {
+      const ev = this.w.events.online;
+      this.onlineT = (o.interval[0] + Math.random() * (o.interval[1] - o.interval[0])) / ev.rate;
+      if (this.couriers.length < o.maxActive + ev.extra && k.queue.length < k.def.maxQueue + ev.extra) {
         const order = this.makeOrder(o.maxOrder);
         this.couriers.push(new Courier(this, k, order));
         this.sfx.play('order', 1, 0);
@@ -526,8 +538,9 @@ export class Shop {
   onlineDelivered(c: Courier) {
     const gross = this.orderValue(c.order, BAL.online.markup);
     const fee = BAL.online.courierFee;
-    const net = Math.round((gross - fee) * this.w.ownerShare(this.id));
-    this.w.data.money += net;
+    const net = Math.round((gross - fee) * this.w.bonusMult() * this.w.ownerShare(this.id));
+    this.w.sale(net);
+    this.w.data.stats!.online++;
     const p = this.w.player.pos;
     this.w.floats.spawn(new THREE.Vector3(p.x, 2.2, p.z), `+${fmtMoney(net)}`);
     this.sfx.play('register', 1, 0);

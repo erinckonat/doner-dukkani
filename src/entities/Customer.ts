@@ -5,12 +5,29 @@ import type { Counter } from '../stations/Counter';
 import type { Seat } from '../stations/Table';
 import { ItemStack, transfer } from '../systems/ItemStack';
 import { orderTotal, remaining, type Order } from '../systems/Order';
-import { makeTrash } from '../world/Assets';
+import { C, makeTrash, mat } from '../world/Assets';
 import { WAIT_SPOT } from '../world/layout';
 import { Agent } from './Agent';
 import { LOOKS, pick } from './Character';
 import { makeAngryEmote } from './Emote';
 import { OrderBubble } from './OrderBubble';
+
+/** A celebrity in a gold jacket, easy to spot in the queue. */
+const VIP_LOOK = { shirt: C.gold, pants: '#2A1E18', collar: '#FFFAF0', tie: '#9E2F1E' };
+const STAR = starGeometry();
+
+function starGeometry() {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 ? 0.1 : 0.24;
+    const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
+    if (i) shape.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    else shape.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  const g = new THREE.ExtrudeGeometry(shape, { depth: 0.06, bevelEnabled: false });
+  g.center();
+  return g;
+}
 
 export type CustomerState = 'queue' | 'toSeat' | 'eating' | 'waitSeat' | 'leaving';
 
@@ -25,9 +42,19 @@ export class Customer extends Agent {
   private bubble = new OrderBubble();
   private emote = makeAngryEmote(2.3);
 
-  constructor(public counter: Counter, private s: Shop, public order: Order) {
-    super({ shirt: pick(LOOKS.shirts), pants: pick(LOOKS.pants), skin: pick(LOOKS.skins), hair: pick(LOOKS.hair) });
+  private star: THREE.Mesh | null = null;
+
+  constructor(public counter: Counter, private s: Shop, public order: Order, public vip = false) {
+    super(vip
+      ? { shirt: VIP_LOOK.shirt, pants: VIP_LOOK.pants, skin: pick(LOOKS.skins), hair: pick(LOOKS.hair), collar: VIP_LOOK.collar, tie: VIP_LOOK.tie }
+      : { shirt: pick(LOOKS.shirts), pants: pick(LOOKS.pants), skin: pick(LOOKS.skins), hair: pick(LOOKS.hair) });
     this.speed = BAL.customerSpeed * (0.9 + Math.random() * 0.2);
+    if (vip) {
+      // A slowly turning gold star above the head marks the celebrity.
+      this.star = new THREE.Mesh(STAR, mat(C.gold, C.gold, 0.35));
+      this.star.position.y = 2.1;
+      this.ch.root.add(this.star);
+    }
     this.stack = new ItemStack(this.ch.hand, s.flyer, () => 99, undefined, true);
     this.bubble.sprite.position.y = 2.35;
     this.ch.root.add(this.bubble.sprite, this.emote);
@@ -35,6 +62,11 @@ export class Customer extends Agent {
 
   update(dt: number) {
     this.step(dt);
+    if (this.star) {
+      this.star.rotation.y += dt * 2.5;
+      // Above the order bubble while it's showing, just over the head otherwise.
+      this.star.position.y = this.bubble.sprite.visible ? 3.05 : 2.2;
+    }
     this.ch.carrying = this.stack.count > 0 && !this.ch.sitting;
     const s = this.s;
     switch (this.state) {

@@ -85,8 +85,17 @@ button:focus-visible {
   40% { transform: scale(1.08); }
 }
 
-.progress {
+.hud-center {
   flex: 0 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.progress {
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   gap: var(--s1);
@@ -191,6 +200,9 @@ button:focus-visible {
 }
 
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* With a street event showing under the progress bar, toasts drop below it. */
+body:has(.event:not([hidden])) .toast { top: 152px; }
 
 .hud-actions {
   display: flex;
@@ -524,6 +536,7 @@ button:focus-visible {
 
 .panel .sub {
   margin: 0;
+  text-wrap: pretty;
   font: 600 14px/1.7 var(--body);
   color: var(--dark-soft);
 }
@@ -593,6 +606,144 @@ button:focus-visible {
   cursor: not-allowed;
 }
 
+/* ---------- Goals ---------- */
+
+.goal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 232px;
+  padding: var(--s1) var(--s2) 12px;
+  border: 2px solid rgba(200, 65, 43, 0.16);
+  border-radius: var(--s2);
+  background: var(--cream-hi);
+  color: var(--dark);
+  box-shadow: var(--shadow);
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+}
+
+.goal:hover { background: #fff; }
+.goal:active { transform: scale(0.97); }
+
+.goal-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s1);
+  font: 800 13px/1.2 var(--display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.goal-top b { color: var(--primary); }
+.goal-top span { color: #8a5a1a; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+
+.goal-text {
+  font: 700 15px/1.35 var(--body);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.goal .bar { height: 6px; margin-top: 4px; }
+.goal .bar i { background: var(--gold); }
+
+.goal.ready {
+  background: var(--primary);
+  border-color: var(--primary-deep);
+  color: var(--cream-hi);
+  box-shadow: 0 2px 0 var(--primary-deep), 0 8px 24px rgba(200, 65, 43, 0.32);
+  animation: nudge 1.6s var(--ease-out) infinite;
+}
+
+.goal.ready:hover { background: var(--primary-hover); }
+.goal.ready .goal-top b,
+.goal.ready .goal-top span { color: var(--cream-hi); }
+.goal.ready .bar { background: rgba(255, 250, 240, 0.25); }
+.goal.ready .bar i { background: var(--cream-hi); }
+
+@keyframes nudge {
+  0%, 60%, 100% { transform: scale(1); }
+  30% { transform: scale(1.04); }
+}
+
+.goal-done {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s1) 0 var(--s2);
+  font: 700 15px/1.4 var(--display);
+  color: #2e6b4a;
+}
+
+.goal-done svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+.goal-row { align-items: flex-start; }
+.goal-row .upg-info p { margin: 0; }
+
+.goal-num {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--cream-hi);
+  font: 800 15px/1 var(--display);
+}
+
+.goal-row.next { opacity: 0.6; }
+.goal-row.next .goal-num { background: rgba(42, 30, 24, 0.12); color: var(--dark-soft); }
+
+/* ---------- Street events ---------- */
+
+.event {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  max-width: 100%;
+  padding: var(--s1) var(--s2) var(--s1) 12px;
+  background: var(--dark);
+  color: var(--cream-hi);
+  border-radius: 999px;
+  box-shadow: 0 2px 4px rgba(42, 30, 24, 0.16), 0 12px 32px rgba(42, 30, 24, 0.24);
+  animation: drop-in 0.35s var(--ease-out);
+}
+
+.event[hidden] { display: none; }
+.event.warn { background: var(--primary-deep); }
+
+@keyframes drop-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+
+.event svg {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.event-body { display: flex; flex-direction: column; min-width: 0; }
+.event-body b { font: 800 15px/1.2 var(--display); white-space: nowrap; }
+.event-body small { font: 700 12px/1.3 var(--body); color: rgba(255, 250, 240, 0.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.event-time {
+  margin-left: var(--s1);
+  font: 800 15px/1 var(--display);
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- Stock exchange ---------- */
 
 #borsa-panel .panel { width: min(560px, 100%); max-height: 80dvh; }
@@ -636,12 +787,38 @@ button:focus-visible {
 .plain-list .fine { padding: var(--s1) 0; font: 600 13px/1.6 var(--body); color: var(--dark-soft); }
 
 @media (max-width: 480px) {
-  .hud { gap: var(--s1); }
-  .money { font-size: 20px; padding-right: var(--s2); }
-  .progress { flex-basis: 160px; min-width: 0; padding-inline: var(--s1); font-size: 14px; }
+  /*
+   * Phones: money and buttons on top; the goal beside the shop's progress below;
+   * a street event across the full width under those.
+   */
+  .hud {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 128px);
+    grid-template-areas:
+      "money actions"
+      "goal progress"
+      "event event"
+      "buffs buffs";
+    gap: var(--s1);
+  }
+  .hud-left, .hud-center { display: contents; }
+  .money { grid-area: money; justify-self: start; font-size: 20px; padding-right: var(--s2); }
+  .hud-actions { grid-area: actions; justify-self: end; }
+  .goal { grid-area: goal; width: auto; min-width: 0; padding: var(--s1) 12px; }
+  .goal-text { font-size: 13px; }
+  .progress { grid-area: progress; align-self: start; padding-inline: 12px; font-size: 14px; }
+  .event { grid-area: event; justify-self: center; }
+  .buffs { grid-area: buffs; }
   .hud-actions .icon-btn { width: 40px; height: 40px; }
   .hint { font-size: 16px; }
-  .toast { font-size: 16px; border-radius: var(--s3); }
+  /* Toasts sit low on phones, clear of the stacked HUD. */
+  .toast,
+  body:has(.event:not([hidden])) .toast {
+    top: auto;
+    bottom: calc(var(--s5) + 56px + env(safe-area-inset-bottom));
+    font-size: 16px;
+    border-radius: var(--s3);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
