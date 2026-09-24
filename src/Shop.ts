@@ -32,6 +32,8 @@ export interface Carrier {
   isPlayer: boolean;
   /** Staff only pick up what they set out to fetch (null: nothing); the player takes anything. */
   wants?: ItemKind | null;
+  /** Staff only drop at the counter they're taking it to (not one they pass on the way). */
+  dropAt?: Counter | null;
 }
 
 /** Share of a machine's top output that actually sells, for income estimates. */
@@ -178,6 +180,22 @@ export class Shop {
     this.spawnStaff(h, true);
     this.sfx.play('unlock', 1, 0);
     this.w.hud.toast(TR.hiredToast(TR.hire[id].name));
+    this.w.panel.render();
+    writeSave(this.w.data);
+  }
+
+  /** Let one of them go (the most recent hire). Nobody gets the hiring cost back. */
+  fire(id: HireId) {
+    const h = this.def.hires.find((x) => x.id === id)!;
+    const n = this.hireCount(id);
+    if (!n) return;
+    const counter = h.role === 'cashier' ? this.counters[h.counter ?? 0] : null;
+    const candidates = this.staff.filter((s) => s.role === h.role && !s.leaving && (!counter || s.counter === counter));
+    const s = candidates[candidates.length - 1];
+    if (!s) return;
+    s.dismiss();
+    this.ss.hires[id] = n - 1;
+    this.w.hud.toast(TR.firedToast(TR.hire[id].name));
     this.w.panel.render();
     writeSave(this.w.data);
   }
@@ -510,6 +528,7 @@ export class Shop {
     if (st.kind && st.kind !== 'trash') {
       for (const k of this.counters) {
         const pile = k.stocks.get(st.kind);
+        if (c.dropAt !== undefined && c.dropAt !== k) continue;
         if (!pile || dist2(p, k.dropZone) >= 1 || !pile.canAccept(st.kind)) continue;
         transfer(st, pile);
         c.cd = BAL.transferInterval;
@@ -517,7 +536,7 @@ export class Shop {
         return;
       }
     }
-    if (c.accepts.has('trash') && st.canAccept('trash')) {
+    if (c.accepts.has('trash') && st.canAccept('trash') && (c.wants === undefined || c.wants === 'trash')) {
       for (const t of this.tables) {
         if (t.trash.count && dist2(p, t.center) < 1.7 * 1.7) {
           transfer(t.trash, st);
@@ -569,8 +588,11 @@ export class Shop {
     for (const m of this.producers) m.update(dt);
     for (const s of this.staff) {
       s.update(dt);
-      if (s.role !== 'cashier') this.interact(s, s.pos);
+      if (s.role !== 'cashier' && !s.leaving) this.interact(s, s.pos);
     }
+    // Fired staff who've walked out of the door.
+    for (const s of this.staff.filter((x) => x.gone)) s.ch.root.removeFromParent();
+    this.staff = this.staff.filter((s) => !s.gone);
     // Far-away positions keep the player out of this shop's zones.
     this.updateCounters(dt, playerHere ? p : new THREE.Vector3(1e4, 0, 1e4));
     this.updateCustomers(dt);

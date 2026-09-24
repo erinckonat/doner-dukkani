@@ -85,7 +85,8 @@ export const PRODUCTS: Record<ProductKind, ProductDef> = {
   doner: { kind: 'doner', price: 200, interval: 1.5, trayMax: 10 },
   burger: { kind: 'burger', price: 280, interval: 1.2, trayMax: 10 },
   fries: { kind: 'fries', price: 85, interval: 1.1, trayMax: 10 },
-  shake: { kind: 'shake', price: 90, interval: 1.6, trayMax: 8 },
+  // A twin-spindle mixer makes two cups at a time.
+  shake: { kind: 'shake', price: 90, interval: 1.0, trayMax: 10 },
 };
 
 /**

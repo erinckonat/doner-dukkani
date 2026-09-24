@@ -15,6 +15,9 @@ export class UpgradePanel {
   private kind: DeskKind = 'office';
   /** The shop whose desk the player is at. */
   private s: Shop | null = null;
+  /** Hire row whose "Çıkar" was pressed once and now asks for confirmation. */
+  private confirmFire: HireId | null = null;
+  private confirmTimer = 0;
   isOpen = false;
 
   constructor(private g: Game) {
@@ -24,6 +27,7 @@ export class UpgradePanel {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-id]');
       if (!btn) return;
       if (!this.s) return;
+      if (btn.dataset.kind === 'fire') return this.pressFire(btn.dataset.id as HireId);
       if (btn.dataset.kind === 'machine') this.s.buyMachine(btn.dataset.id as ProductKind);
       else if (btn.dataset.kind === 'hire') this.s.hire(btn.dataset.id as HireId);
       else this.s.buyUpgrade(btn.dataset.id as UpgradeId);
@@ -96,8 +100,24 @@ export class UpgradePanel {
         <p>${TR.hire[h.id].desc}</p>
         ${open ? '' : this.pips(n, max, TR.staffCount(n, max))}
       </div>
-      <button class="buy ${locked ? 'locked' : ''}" data-kind="hire" data-id="${h.id}" ${disabled ? 'disabled' : ''}>${label}</button>
+      <div class="hire-actions">
+        <button class="buy ${locked ? 'locked' : ''}" data-kind="hire" data-id="${h.id}" ${disabled ? 'disabled' : ''}>${label}</button>
+        ${n ? `<button class="fire ${this.confirmFire === h.id ? 'armed' : ''}" data-kind="fire" data-id="${h.id}">${this.confirmFire === h.id ? TR.fireConfirm : TR.fireBtn}</button>` : ''}
+      </div>
     </li>`;
+  }
+
+  /** First press arms it, the second (within 3 s) lets the worker go. */
+  private pressFire(id: HireId) {
+    clearTimeout(this.confirmTimer);
+    if (this.confirmFire === id) {
+      this.confirmFire = null;
+      this.s?.fire(id);
+      return;
+    }
+    this.confirmFire = id;
+    this.render();
+    this.confirmTimer = window.setTimeout(() => { this.confirmFire = null; this.render(); }, 3000);
   }
 
   private machineRows(s: Shop) {
