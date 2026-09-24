@@ -1,6 +1,5 @@
 import type { Game } from '../Game';
-import { goalAt, GOALS } from '../systems/Goals';
-import { fmtMoney } from './Hud';
+import { goalAt } from '../systems/Goals';
 import { TR } from './strings.tr';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -11,13 +10,13 @@ const PEEK = 3;
 const CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>';
 
 /**
- * The current goal under the money: what to do next, how far along, the reward.
- * Tapping it claims a finished goal, or opens the list otherwise.
+ * The current goal under the money: what to do next and how far along. A finished
+ * goal moves on to the next by itself; tapping the card opens the list.
  */
 export class GoalCard {
   private card = $<HTMLButtonElement>('goal');
   private label = $('goal-label');
-  private reward = $('goal-reward');
+  private count = $('goal-count');
   private text = $('goal-text');
   private fill = $('goal-fill');
   private wrap = $('goals-panel');
@@ -26,34 +25,38 @@ export class GoalCard {
   private t = 0;
 
   constructor(private g: Game) {
-    this.card.addEventListener('click', () => (this.ready ? this.claim() : this.toggle()));
+    this.card.addEventListener('click', () => this.toggle());
     $('goals-close').addEventListener('click', () => this.close());
     addEventListener('keydown', (e) => { if (e.key === 'Escape') this.close(); });
+    // Goals already met in an older save move on quietly.
+    this.advance(false);
     this.render();
   }
 
   get isOpen() { return !this.wrap.hidden; }
 
   private get index() { return this.g.data.goal ?? 0; }
-  private get goal() { return goalAt(this.index); }
-  private get ready() { return this.goal.progress(this.g.data) >= this.goal.target; }
 
   update(dt: number) {
     this.t -= dt;
     if (this.t > 0) return;
     this.t = 0.25;
+    this.advance(true);
     this.render();
   }
 
-  private claim() {
-    const goal = this.goal;
-    this.g.data.goal = this.index + 1;
-    this.g.addMoney(goal.reward);
-    this.g.hud.toast(TR.goals.claimed(fmtMoney(goal.reward)));
+  /** Step past every goal that's done; celebrate the last one if asked. */
+  private advance(announce: boolean) {
+    let last = null;
+    for (let goal = goalAt(this.index); goal.progress(this.g.data) >= goal.target; goal = goalAt(this.index)) {
+      last = goal;
+      this.g.data.goal = this.index + 1;
+    }
+    if (!last || !announce) return;
+    this.g.hud.toast(TR.goals.done(last.text));
     this.g.sfx.play('unlock', 1, 0);
     this.g.celebrateAtPlayer();
     this.g.save();
-    this.render();
   }
 
   private toggle() {
@@ -66,22 +69,16 @@ export class GoalCard {
   close() { this.wrap.hidden = true; }
 
   private render() {
-    const goal = this.goal;
+    const goal = goalAt(this.index);
     const cur = Math.min(goal.target, goal.progress(this.g.data));
-    const ready = cur >= goal.target;
-    const key = `${this.index}|${cur}|${ready}`;
+    const key = `${this.index}|${cur}`;
     if (key === this.key) return;
     this.key = key;
     this.label.textContent = TR.goals.label(this.index + 1);
-    this.reward.textContent = ready ? TR.goals.claim : fmtMoney(goal.reward);
-    this.text.textContent = goal.target > 1 && !ready
-      ? `${goal.text} · ${short(cur)}/${short(goal.target)}`
-      : goal.text;
+    this.count.textContent = goal.target > 1 ? `${short(cur)}/${short(goal.target)}` : '';
+    this.text.textContent = goal.text;
     this.fill.style.transform = `scaleX(${cur / goal.target})`;
-    this.card.classList.toggle('ready', ready);
-    this.card.setAttribute('aria-label', ready
-      ? `${goal.text}. ${TR.goals.claim}: ${fmtMoney(goal.reward)}`
-      : `${goal.text}. ${TR.goals.open}`);
+    this.card.setAttribute('aria-label', `${goal.text}. ${TR.goals.open}`);
     if (this.isOpen) this.renderList();
   }
 
@@ -90,17 +87,14 @@ export class GoalCard {
     const row = (n: number, state: 'now' | 'next') => {
       const goal = goalAt(n);
       const cur = Math.min(goal.target, goal.progress(this.g.data));
+      const note = state === 'now' && goal.target > 1 ? `<p>${short(cur)}/${short(goal.target)}</p>` : '';
       return `<li class="upg goal-row ${state}">
         <span class="goal-num">${n + 1}</span>
-        <div class="upg-info">
-          <h3>${goal.text}</h3>
-          <p>${TR.goals.reward(fmtMoney(goal.reward))}${state === 'now' && goal.target > 1 ? ` · ${short(cur)}/${short(goal.target)}` : ''}</p>
-        </div>
+        <div class="upg-info"><h3>${goal.text}</h3>${note}</div>
       </li>`;
     };
-    const done = Math.min(i, GOALS.length);
     const html = [
-      done ? `<li class="goal-done">${CHECK}${TR.goals.doneCount(i)}</li>` : '',
+      i ? `<li class="goal-done">${CHECK}${TR.goals.doneCount(i)}</li>` : '',
       row(i, 'now'),
       `<li class="upg section">${TR.goals.next}</li>`,
       ...Array.from({ length: PEEK }, (_, k) => row(i + 1 + k, 'next')),

@@ -34,13 +34,13 @@ export interface CounterDef {
 export const MAIN_COUNTER: CounterDef = {
   x: -3, z: -2, len: 4, depth: 1, rotY: 0,
   drop: [-4.2, -3.25], cashier: [-2.3, -3.25], serve: [-2.3, -0.8], dir: [0, 1],
-  spawn: [0.5, 13.5], maxQueue: 7, dine: true, stockX: -1.2, regX: 0.7, stockSlots: [-1.65, -0.9, -0.15],
+  spawn: [0.5, 13.5], maxQueue: 7, dine: true, stockX: -1.2, regX: 0.7, stockSlots: [-1.65, -0.9, -0.15, 1.5],
 };
 
 export const WINDOW_COUNTER: CounterDef = {
   x: -10, z: 3, len: 2, depth: 0.8, rotY: Math.PI / 2,
   drop: [-8.95, 3.55], cashier: [-8.95, 2.5], serve: [DRIVE_ROAD.laneX, 3], dir: [0, -1],
-  spawn: [DRIVE_ROAD.laneX, DRIVE_ROAD.z0], maxQueue: 4, dine: false, stockX: -0.45, regX: 0.5, stockSlots: [-0.85, -0.5, -0.15],
+  spawn: [DRIVE_ROAD.laneX, DRIVE_ROAD.z0], maxQueue: 4, dine: false, stockX: -0.45, regX: 0.72, stockSlots: [-0.85, -0.5, -0.15, 0.25],
   awning: true, slotGap: 3.4, drive: true,
 };
 
@@ -92,7 +92,9 @@ export class Counter {
       g.add(anchor);
       this.stocks.set(kind, single
         ? new ItemStack(anchor, flyer, () => BAL.counterMax, gridLayout(2, 2, 0.42, 0.26))
-        : new ItemStack(anchor, flyer, () => 16, gridLayout(2, 2, kind === 'burger' ? 0.34 : 0.18, 0.26)));
+        : kind === 'menu'
+          ? new ItemStack(anchor, flyer, () => 10, gridLayout(1, 2, 0, 0.26))
+          : new ItemStack(anchor, flyer, () => 16, gridLayout(2, 2, kind === 'burger' ? 0.34 : 0.18, 0.26)));
     });
     scene.add(g);
 

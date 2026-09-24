@@ -43,6 +43,13 @@ function buildMachine(kind: ProductKind, g: THREE.Group): THREE.Object3D | null 
       g.add(at(box(1.46, 0.5, 0.12, C.steelDark), 0, 1.2, -0.46));
       return baskets;
     }
+    case 'menu': {
+      // Prep counter: a shelf of flat-packed boxes behind, a stack of ready lids on the side.
+      g.add(at(box(1.46, 0.9, 0.14, C.steelDark), 0, 1.35, -0.46));
+      for (let i = 0; i < 3; i++) g.add(at(box(0.36, 0.05, 0.26, '#C79A5B'), -0.45 + i * 0.45, 1.7, -0.3));
+      g.add(at(box(1.3, 0.04, 0.3, C.steel), 0, 1.66, -0.3));
+      return null;
+    }
     case 'shake': {
       // Twin-spindle mixer on a cream cabinet, a cup under each head.
       g.add(at(box(1.2, 1.2, 0.35, '#F4B6C2'), 0, 1.5, -0.35));
@@ -66,12 +73,12 @@ export class Producer {
   zone: THREE.Vector3;
   rect: Rect;
   private moving: THREE.Object3D | null;
-  private spawn = new THREE.Object3D();
-  private t = 0;
+  protected spawn = new THREE.Object3D();
+  protected t = 0;
   private time = Math.random() * 10;
 
   /** Built into `root` (the shop); finished items start life in the world `scene`. */
-  constructor(x: number, z: number, public product: ProductKind, root: THREE.Object3D, private scene: THREE.Scene, flyer: Flyer, rotY = 0) {
+  constructor(x: number, z: number, public product: ProductKind, root: THREE.Object3D, protected scene: THREE.Scene, flyer: Flyer, rotY = 0) {
     const g = this.group;
     g.position.set(x, 0, z);
     g.rotation.y = rotY;

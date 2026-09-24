@@ -14,6 +14,7 @@ import { Customer } from './entities/Customer';
 import { Staff } from './entities/Staff';
 import type { Game } from './Game';
 import { Counter, MAIN_COUNTER, WINDOW_COUNTER, type QueueMember } from './stations/Counter';
+import { MenuStation } from './stations/MenuStation';
 import { Producer } from './stations/Producer';
 import { Desk, TrashBin, type DeskKind } from './stations/Props';
 import { Table, type Seat } from './stations/Table';
@@ -23,7 +24,7 @@ import { isComplete, orderTotal, remaining, type Order } from './systems/Order';
 import { fmtMoney } from './ui/Hud';
 import { TR } from './ui/strings.tr';
 import { buildShopBuilding, type LevelRefs } from './world/Level';
-import { BIN_POS, EXTRA_MACHINE_SLOTS, HR_POS, MACHINE_SLOTS, OFFICE_POS, STAFF_ENTRY, STAFF_HOMES, TABLE_POS, WORLD } from './world/layout';
+import { BIN_POS, EXTRA_MACHINE_SLOTS, HR_POS, MACHINE_SLOTS, MENU_POS, OFFICE_POS, STAFF_ENTRY, STAFF_HOMES, TABLE_POS, WORLD } from './world/layout';
 
 export interface Carrier {
   stack: ItemStack;
@@ -34,7 +35,12 @@ export interface Carrier {
   wants?: ItemKind | null;
   /** Staff only drop at the counter they're taking it to (not one they pass on the way). */
   dropAt?: Counter | null;
+  /** Staff carrying parts to the menu counter (the player always hands them over there). */
+  toStation?: boolean;
 }
+
+/** Share of customers who ask for a boxed menu, once the shop has a menu counter. */
+const MENU_SHARE = 0.4;
 
 /** A celebrity customer pays this many times their order. */
 const VIP_MULT = 5;
@@ -108,7 +114,9 @@ export class Shop {
 
   /** The manager's view of the last half-minute: samples each second, decides every so often. */
   private mgr = { t: 0, cool: 0, owed: [] as number[], dirty: [] as number[], idle: [] as number[] };
-  private products: ProductKind[];
+  /** Everything this shop sells, the menu included where there's a menu counter to buy. */
+  readonly products: ProductKind[];
+  menuStation: MenuStation | null = null;
   private level: LevelRefs;
   private spawnT = [1.5, 3];
   private onlineT = 6;
@@ -119,6 +127,7 @@ export class Shop {
     this.def = SHOPS[id];
     this.ss = shopState(w.data, id)!;
     this.products = [...new Set(this.def.producers.map((p) => p.product))];
+    if (this.def.unlocks.some((u) => u.kind === 'menu')) this.products.push('menu');
     this.root.position.x = ox;
     w.scene.add(this.root);
 
@@ -172,7 +181,10 @@ export class Shop {
   price(kind: ProductKind) { return priceOf(kind, this.lvl('price')); }
 
   incomePerSecond() {
-    return this.producers.reduce((s, p) => s + (this.price(p.product) / PRODUCTS[p.product].interval) * SELL_THROUGH, 0);
+    // The menu counter only repackages what the machines make (at a markup): leave it out.
+    return this.producers
+      .filter((p) => p.product !== 'menu')
+      .reduce((s, p) => s + (this.price(p.product) / PRODUCTS[p.product].interval) * SELL_THROUGH, 0);
   }
 
   buyUpgrade(id: UpgradeId) {
@@ -268,7 +280,7 @@ export class Shop {
   }
 
   /** Products that can get an extra machine: those the shop already makes. */
-  machineProducts() { return this.availableProducts(); }
+  machineProducts() { return this.availableProducts().filter((k) => k !== 'menu'); }
 
   buyMachine(kind: ProductKind) {
     const slot = this.freeMachineSlots()[0];
@@ -313,6 +325,13 @@ export class Shop {
         this.hr = new Desk(HR_POS, this.root, 'hr');
         obj = this.hr.group;
         break;
+      case 'menu': {
+        const [x, z, rot] = MENU_POS;
+        this.menuStation = new MenuStation(x, z, this.root, this.scene, this.flyer, rot);
+        this.producers.push(this.menuStation);
+        obj = this.menuStation.group;
+        break;
+      }
       case 'window': {
         this.level.windowWall.visible = false;
         const k = new Counter(WINDOW_COUNTER, this.products, theme.stripe, this.root, this.flyer);
@@ -324,7 +343,7 @@ export class Shop {
     this.rebuildNav();
     if (!animate) return;
     this.w.celebrate(obj, this.toWorld(new THREE.Vector3(def.x, 0, def.z)));
-    this.w.hud.toast(TR.unlocked(this.unlockName(def)));
+    this.w.hud.toast(def.kind === 'menu' ? TR.menuOpened : TR.unlocked(this.unlockName(def)));
   }
 
   private rebuildNav() {
@@ -383,12 +402,17 @@ export class Shop {
     return free.length ? free[Math.floor(Math.random() * free.length)] : null;
   }
 
-  /** The main product, plus a chance of each extra the shop can make. */
+  /**
+   * The main product, plus a chance of each extra the shop can make. Once there's a
+   * menu counter, some customers ask for a boxed menu (or two) instead.
+   */
   private makeOrder(maxMain: number): Order {
     const main = this.def.main;
+    const kinds = this.availableProducts();
+    if (kinds.includes('menu') && Math.random() < MENU_SHARE) return { menu: Math.random() < 0.3 ? 2 : 1 };
     const o: Order = { [main]: 1 + Math.floor(Math.random() * maxMain) };
-    for (const k of this.availableProducts()) {
-      if (k !== main && Math.random() < 0.6) o[k] = Math.random() < 0.3 ? 2 : 1;
+    for (const k of kinds) {
+      if (k !== main && k !== 'menu' && Math.random() < 0.6) o[k] = Math.random() < 0.3 ? 2 : 1;
     }
     return o;
   }
@@ -559,6 +583,14 @@ export class Shop {
       transfer(m.tray, st);
       c.cd = BAL.transferInterval;
       if (c.isPlayer) this.sfx.play('pickup', 1 + st.count * 0.04);
+      return;
+    }
+    // Parts for the menu counter: the player hands over whatever it can use; staff only when sent.
+    const ms = this.menuStation;
+    if (ms && st.kind && (c.isPlayer || c.toStation) && ms.wants(st.kind as ProductKind) && dist2(p, ms.zone) < 1.1 * 1.1) {
+      transfer(st, ms.inputs.get(st.kind as ProductKind)!);
+      c.cd = BAL.transferInterval;
+      if (c.isPlayer) this.sfx.play('drop');
       return;
     }
     if (st.kind && st.kind !== 'trash') {

@@ -23,6 +23,10 @@ export const MACHINE_SLOTS: [number, number, number][] = [
   [-9.0, -3.1, Math.PI / 2],
 ];
 export const EXTRA_MACHINE_SLOTS = [3, 4, 5];
+/** The burger shop's menu counter: on the left wall behind the till, facing into the kitchen. */
+export const MENU_POS: [number, number, number] = [-9.0, -1.2, Math.PI / 2];
+/** Where you stand to hand it parts and take boxes (1.7 m in front, like the machines). */
+export const MENU_ZONE: [number, number] = [-7.3, -1.2];
 /** Pickup zone sits this far in front of the spit centre. */
 export const SPIT_ZONE_DZ = 1.7;
 

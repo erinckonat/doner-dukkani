@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import type { ProductKind, StaffRole } from '../config/balance';
+import { MENU_PARTS, type ProductKind, type StaffRole } from '../config/balance';
 import type { Shop } from '../Shop';
 import type { Counter } from '../stations/Counter';
+import { MENU_INPUT_CAP } from '../stations/MenuStation';
 import type { Producer } from '../stations/Producer';
 import type { Table } from '../stations/Table';
 import { ItemStack, type ItemKind } from '../systems/ItemStack';
@@ -18,7 +19,8 @@ const PER_MACHINE = 2;
 
 const SHIRT: Record<StaffRole, string> = { manager: '#8FA6BF', cashier: C.gold, carrier: C.gold, cleaner: '#5E8C7A', stocker: '#3E6B5A', receptionist: '#2E3A55', housekeeper: '#E9E4DA' };
 
-type Task = { kind: 'fetch'; product: ProductKind } | { kind: 'clean'; table: Table } | null;
+/** `supply`: the parts go to the menu counter rather than the till. */
+type Task = { kind: 'fetch'; product: ProductKind; supply?: boolean } | { kind: 'clean'; table: Table } | null;
 
 /**
  * Hired worker. Cashiers hold the register. Waiters and cleaners share one job
@@ -35,6 +37,7 @@ export class Staff extends Agent {
   wants?: ItemKind | null;
   /** The counter this worker is carrying food to. */
   dropAt?: Counter | null;
+  toStation = false;
   atPost = false;
   /** Fired: dropping everything and walking out. */
   leaving = false;
@@ -49,8 +52,7 @@ export class Staff extends Agent {
       ? { shirt: SHIRT.manager, pants: '#3A3F4A', skin: pick(LOOKS.skins), hair: pick(LOOKS.hair), tie: C.gold }
       : { shirt: SHIRT[role], pants: C.dark, skin: pick(LOOKS.skins), hair: pick(LOOKS.hair), hat: 'cap', hatColor: C.primary, apron: role === 'cleaner' ? C.cream : undefined });
     this.stack = new ItemStack(this.ch.hand, g.flyer, () => g.staffCap);
-    const products = g.def.producers.map((p) => p.product);
-    this.accepts = new Set<ItemKind>(role === 'cashier' ? [] : [...products, 'trash']);
+    this.accepts = new Set<ItemKind>(role === 'cashier' ? [] : [...g.products, 'trash']);
     this.pos.copy(from ?? home);
     if (role !== 'cashier') { this.wants = null; this.dropAt = null; }
     if (role === 'cashier' && counter) counter.staffCashier = this;
@@ -154,12 +156,49 @@ export class Staff extends Agent {
     return dirty.reduce((a, b) => (dist2(b.center, this.pos) < dist2(a.center, this.pos) ? b : a));
   }
 
+  // ---------- the menu counter ----------
+
+  /** Menus the tills want (the queue's, else a spare pile), less boxes packed or in hand. */
+  private menusShort() {
+    const s = this.g.menuStation;
+    if (!s) return 0;
+    const owed = this.g.counters.reduce((n, k) => n + this.owedAt('menu', k), 0);
+    const spare = this.g.counters.reduce((n, k) => n + Math.max(0, SPARE_EXTRA - this.g.counterStock('menu', k)), 0);
+    const held = [this, ...this.mates].reduce((n, w) => n + (w.stack.kind === 'menu' ? w.stack.count : 0), 0);
+    return Math.max(owed, spare) - s.tray.count - held;
+  }
+
+  /** Parts of `kind` the menu counter should get, less what other workers are bringing. */
+  private supplyGap(kind: ProductKind) {
+    const s = this.g.menuStation;
+    if (!s || !MENU_PARTS.includes(kind)) return 0;
+    const coming = this.mates.reduce((n, w) => {
+      const t = w.task;
+      return n + (t?.kind === 'fetch' && t.supply && t.product === kind ? w.stack.count || this.g.staffCap : 0);
+    }, 0);
+    return Math.min(this.menusShort(), MENU_INPUT_CAP) - s.inputs.get(kind)!.count - coming;
+  }
+
+  /** The part the menu counter is shortest of, if it needs any. */
+  private bestPart(): ProductKind | null {
+    let best: ProductKind | null = null;
+    let bestGap = 0;
+    for (const k of MENU_PARTS) {
+      if (!this.machines(k).length) continue;
+      const n = this.supplyGap(k);
+      if (n > bestGap && !this.crowded(k)) { best = k; bestGap = n; }
+    }
+    return best;
+  }
+
   /** The product most worth fetching now, by `gap` (owed or spare shortfall). */
   private bestProduct(gap: (k: ProductKind) => number): ProductKind | null {
     const kinds = [...new Set(this.g.producers.map((p) => p.product))];
     let best: ProductKind | null = null;
     let bestGap = 0;
     for (const k of kinds) {
+      // Nobody waits at the menu counter until it has a box or the parts for one.
+      if (k === 'menu' && !this.g.menuStation?.ready) continue;
       const n = gap(k);
       if (n > bestGap && !this.crowded(k)) { best = k; bestGap = n; }
     }
@@ -171,7 +210,11 @@ export class Staff extends Agent {
     const owedProduct = this.bestProduct((k) => this.owed(k));
     const fetch = (product: ProductKind | null): Task => (product ? { kind: 'fetch', product } : null);
     const clean: Task = table ? { kind: 'clean', table } : null;
-    const first = this.role === 'cleaner' ? clean ?? fetch(owedProduct) : fetch(owedProduct) ?? clean;
+    const part = this.bestPart();
+    const supply: Task = part ? { kind: 'fetch', product: part, supply: true } : null;
+    const first = this.role === 'cleaner'
+      ? clean ?? fetch(owedProduct) ?? supply
+      : fetch(owedProduct) ?? supply ?? clean;
     return first ?? fetch(this.bestProduct((k) => this.spareGap(k)));
   }
 
@@ -180,9 +223,14 @@ export class Staff extends Agent {
   private thinkWorker() {
     const st = this.stack;
     if (st.kind === 'trash') return this.carryTrash();
-    if (st.count) return this.carryProduct(st.kind as ProductKind);
+    if (st.count) {
+      const t = this.task;
+      if (t?.kind === 'fetch' && t.supply && t.product === st.kind) return this.carrySupply(st.kind);
+      return this.carryProduct(st.kind as ProductKind);
+    }
     this.delivering = false;
     this.dropAt = null;
+    this.toStation = false;
     this.task = this.pickTask();
     const t = this.task;
     if (!t) {
@@ -226,6 +274,30 @@ export class Staff extends Agent {
     });
     this.dropAt = k;
     this.moveTo(this.g.nav, k.dropZone);
+  }
+
+  /** Holding parts for the menu counter: load what it's short of, then hand them over there. */
+  private carrySupply(kind: ProductKind) {
+    const s = this.g.menuStation;
+    // Nothing more fits on the counter: take them to the till like any other food.
+    if (!s || !s.wants(kind)) {
+      this.task = { kind: 'fetch', product: kind };
+      this.toStation = false;
+      this.delivering = false;
+      return this.carryProduct(kind);
+    }
+    const st = this.stack;
+    const trayEmpty = this.machines(kind).every((p) => !p.tray.count);
+    if (!this.delivering && !st.isFull && st.count < this.supplyGap(kind) && !trayEmpty) {
+      this.wants = kind;
+      this.moveTo(this.g.nav, this.bestMachine(kind).zone);
+      return;
+    }
+    this.delivering = true;
+    this.wants = null;
+    this.dropAt = null;
+    this.toStation = true;
+    this.moveTo(this.g.nav, s.zone);
   }
 
   /** Holding trash: clear more tables while there's room, then the bin. */

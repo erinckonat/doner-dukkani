@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { ProductKind } from '../config/balance';
 
 export const C = {
   primary: '#C8412B',
@@ -118,6 +119,17 @@ export function makeShake() {
   return g;
 }
 
+/** A kraft takeaway box with a red band and a gold seal: a burger menu. */
+export function makeMenuBox() {
+  const g = new THREE.Group();
+  g.add(at(box(0.3, 0.2, 0.22, '#C79A5B', false), 0, 0.1, 0));
+  g.add(at(box(0.305, 0.06, 0.225, C.primary, false), 0, 0.13, 0));
+  g.add(at(box(0.08, 0.05, 0.01, C.gold, false), 0, 0.13, 0.115));
+  // Carry handle over the lid.
+  g.add(at(box(0.16, 0.03, 0.03, '#A87B42', false), 0, 0.215, 0));
+  return g;
+}
+
 export const GROCERY_SCALE = 1.4;
 
 /** A packaged grocery item: loaf, carton, egg tray, pasta pack, oil bottle, detergent box. */
@@ -161,12 +173,13 @@ export function makeTowel() {
 }
 
 /** One carried/served item of a product. */
-export function makeProduct(kind: 'doner' | 'burger' | 'fries' | 'shake') {
+export function makeProduct(kind: ProductKind) {
   switch (kind) {
     case 'doner': return makeDoner();
     case 'burger': return makeBurger();
     case 'fries': return makeFries();
     case 'shake': return makeShake();
+    case 'menu': return makeMenuBox();
   }
 }
 
@@ -239,7 +252,7 @@ export function drawDonerIcon(ctx: CanvasRenderingContext2D, cx: number, cy: num
 }
 
 /** Small product glyphs for 2D canvases (order bubbles, signs). */
-export function drawProductIcon(ctx: CanvasRenderingContext2D, kind: 'doner' | 'burger' | 'fries' | 'shake', cx: number, cy: number, s: number) {
+export function drawProductIcon(ctx: CanvasRenderingContext2D, kind: ProductKind, cx: number, cy: number, s: number) {
   if (kind === 'doner') return drawDonerIcon(ctx, cx, cy, s);
   ctx.save();
   ctx.translate(cx, cy);
@@ -256,6 +269,19 @@ export function drawProductIcon(ctx: CanvasRenderingContext2D, kind: 'doner' | '
     ctx.fillStyle = '#D9A35B';
     roundRect(ctx, -s * 0.95, s * 0.3, s * 1.9, s * 0.32, s * 0.14);
     ctx.fill();
+  } else if (kind === 'menu') {
+    ctx.fillStyle = '#C79A5B';
+    roundRect(ctx, -s, -s * 0.55, s * 2, s * 1.4, s * 0.16);
+    ctx.fill();
+    ctx.fillStyle = C.primary;
+    ctx.fillRect(-s, -s * 0.2, s * 2, s * 0.4);
+    ctx.fillStyle = C.gold;
+    ctx.fillRect(-s * 0.22, -s * 0.2, s * 0.44, s * 0.4);
+    ctx.strokeStyle = '#A87B42';
+    ctx.lineWidth = s * 0.16;
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.45, -s * 0.55); ctx.lineTo(-s * 0.3, -s * 0.95); ctx.lineTo(s * 0.3, -s * 0.95); ctx.lineTo(s * 0.45, -s * 0.55);
+    ctx.stroke();
   } else if (kind === 'fries') {
     ctx.fillStyle = '#F2C94C';
     for (let i = 0; i < 5; i++) ctx.fillRect(-s * 0.6 + i * s * 0.26, -s * (0.95 - (i % 2) * 0.15), s * 0.18, s * 0.9);
@@ -281,7 +307,7 @@ export function drawProductIcon(ctx: CanvasRenderingContext2D, kind: 'doner' | '
 }
 
 /** Dashed floor ring marking where to stand, with a small glyph in the middle. */
-export function zoneDecal(kind: 'drop' | 'register', product: 'doner' | 'burger' | 'fries' | 'shake' = 'doner') {
+export function zoneDecal(kind: 'drop' | 'register', product: ProductKind = 'doner') {
   const { tex } = canvasTexture(256, 256, (ctx) => {
     ctx.beginPath();
     ctx.arc(128, 128, 112, 0, Math.PI * 2);

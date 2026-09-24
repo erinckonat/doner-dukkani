@@ -1,4 +1,4 @@
-import { HR_POS, OFFICE_POS, SPIT_POS, SPIT_ZONE_DZ, TABLE_POS } from '../world/layout';
+import { HR_POS, MENU_ZONE, OFFICE_POS, SPIT_POS, SPIT_ZONE_DZ, TABLE_POS } from '../world/layout';
 
 /**
  * Every tunable number in the game lives here.
@@ -71,7 +71,10 @@ export const HR_UPGRADES: UpgradeId[] = ['sSpeed', 'sCap'];
 
 // ---------- products ----------
 
-export type ProductKind = 'doner' | 'burger' | 'fries' | 'shake';
+export type ProductKind = 'doner' | 'burger' | 'fries' | 'shake' | 'menu';
+
+/** What goes into one menu box at the burger shop's menu counter. */
+export const MENU_PARTS: ProductKind[] = ['burger', 'fries', 'shake'];
 
 export interface ProductDef {
   kind: ProductKind;
@@ -88,6 +91,9 @@ export const PRODUCTS: Record<ProductKind, ProductDef> = {
   fries: { kind: 'fries', price: 85, interval: 1.1, trayMax: 10 },
   // A twin-spindle mixer makes two cups at a time.
   shake: { kind: 'shake', price: 90, interval: 1.0, trayMax: 10 },
+  // Burger, fries and shake boxed together: 455 TL loose, 560 TL as a menu. `interval` is
+  // how long the menu counter takes to pack one box.
+  menu: { kind: 'menu', price: 560, interval: 1.2, trayMax: 6 },
 };
 
 /**
@@ -95,7 +101,7 @@ export const PRODUCTS: Record<ProductKind, ProductDef> = {
  * 51,200 TL (Atalay ADG-8S); 50 cm electric flat grill 6,500 TL (Remta R83); twin fryer
  * 7,290 TL (Remta R92); twin-spindle milkshake mixer 37,536 TL (Macap F4D).
  */
-export const MACHINE_PRICE: Record<ProductKind, number> = { doner: 51200, burger: 6500, fries: 7290, shake: 37536 };
+export const MACHINE_PRICE: Record<ProductKind, number> = { doner: 51200, burger: 6500, fries: 7290, shake: 37536, menu: 0 };
 
 export const priceOf = (kind: ProductKind, priceLevel: number) =>
   Math.round(PRODUCTS[kind].price * (1 + BAL.priceStep * priceLevel));
@@ -104,7 +110,7 @@ export const priceOf = (kind: ProductKind, priceLevel: number) =>
 
 export type ShopId = 'doner' | 'burger';
 export type StaffRole = 'manager' | 'cashier' | 'carrier' | 'cleaner' | 'stocker' | 'receptionist' | 'housekeeper';
-export type UnlockKind = 'table' | 'producer' | 'office' | 'hr' | 'window';
+export type UnlockKind = 'table' | 'producer' | 'office' | 'hr' | 'window' | 'menu';
 
 export interface UnlockDef {
   id: string;
@@ -171,6 +177,7 @@ const machine = (id: string, slot: number, cost: number): UnlockDef =>
 const office = (cost: number): UnlockDef => ({ id: 'office', kind: 'office', cost, x: OFFICE_POS[0], z: OFFICE_POS[1] });
 const hr = (cost: number): UnlockDef => ({ id: 'hr', kind: 'hr', cost, x: HR_POS[0], z: HR_POS[1] });
 const driveWindow = (cost: number): UnlockDef => ({ id: 'window', kind: 'window', cost, x: -8.95, z: 3.55 });
+const menuCounter = (cost: number): UnlockDef => ({ id: 'menu', kind: 'menu', cost, x: MENU_ZONE[0], z: MENU_ZONE[1] });
 
 /** Staff hired at the HR desk, in the order the panel lists them. */
 const STAFF: HireDef[] = [
@@ -227,6 +234,8 @@ export const SHOPS: Record<ShopId, ShopDef> = {
       table('table3', 2, 6000),
       hr(10000),
       machine('shaker', 2, 37500),
+      // Stainless prep counter with a box shelf, where the three products become a menu.
+      menuCounter(30000),
       table('table4', 3, 8000),
       table('table5', 4, 12500),
       table('table6', 5, 14000),
