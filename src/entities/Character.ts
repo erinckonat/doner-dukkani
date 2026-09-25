@@ -43,9 +43,22 @@ export class Character {
   private legR = new THREE.Group();
   private armL = new THREE.Group();
   private armR = new THREE.Group();
+  /** Head, face, hair and hat: turns on its own to look around. */
+  private head = new THREE.Group();
   private phase = Math.random() * 6;
   private amp = 0;
   private yaw = 0;
+  /** 0 walking … 1 running, eased. */
+  private run = 0;
+  /** Lean into the current turn, eased. */
+  private turnLean = 0;
+  private turnRate = 0;
+  private lean = 0;
+  // Idle: breathing, and now and then a look to one side.
+  private idleT = Math.random() * 10;
+  private lookT = 1 + Math.random() * 3;
+  private look = 0;
+  private lookAt = 0;
 
   constructor(look: Look) {
     const m = (g: THREE.BufferGeometry, color: string, x: number, y: number, z: number, shadow = true) => {
@@ -63,17 +76,21 @@ export class Character {
       this.model.add(m(G.lapel, look.collar, 0, 1.02, 0.25, false));
     }
     if (look.tie) this.model.add(m(G.tie, look.tie, 0, 1.0, 0.27, false));
-    this.model.add(m(G.head, look.skin, 0, 1.5, 0));
-    this.model.add(m(G.eye, '#2A1E18', -0.09, 1.53, 0.225, false), m(G.eye, '#2A1E18', 0.09, 1.53, 0.225, false));
+    // The head pivots at the neck (y 1.3) so it can nod and turn.
+    const hy = 1.3;
+    this.head.position.y = hy;
+    this.model.add(this.head);
+    this.head.add(m(G.head, look.skin, 0, 1.5 - hy, 0));
+    this.head.add(m(G.eye, '#2A1E18', -0.09, 1.53 - hy, 0.225, false), m(G.eye, '#2A1E18', 0.09, 1.53 - hy, 0.225, false));
     if (look.hair) {
-      const hair = m(G.hair, look.hair, 0, 1.6, -0.03);
+      const hair = m(G.hair, look.hair, 0, 1.6 - hy, -0.03);
       hair.scale.set(1, 0.62, 1);
-      this.model.add(hair);
+      this.head.add(hair);
     }
     if (look.hat === 'chef') {
-      this.model.add(m(G.chef, '#FBF6EC', 0, 1.79, 0), m(G.chefTop, '#FBF6EC', 0, 1.97, 0));
+      this.head.add(m(G.chef, '#FBF6EC', 0, 1.79 - hy, 0), m(G.chefTop, '#FBF6EC', 0, 1.97 - hy, 0));
     } else if (look.hat === 'cap') {
-      this.model.add(m(G.cap, look.hatColor ?? '#C8412B', 0, 1.7, 0), m(G.brim, look.hatColor ?? '#C8412B', 0, 1.66, 0.24));
+      this.head.add(m(G.cap, look.hatColor ?? '#C8412B', 0, 1.7 - hy, 0), m(G.brim, look.hatColor ?? '#C8412B', 0, 1.66 - hy, 0.24));
     }
     for (const [leg, x] of [[this.legL, -0.12], [this.legR, 0.12]] as const) {
       leg.position.set(x, 0.52, 0);
@@ -89,25 +106,76 @@ export class Character {
     this.model.add(this.hand);
   }
 
+  /**
+   * Walk/run cycle from the speed (m/s): stride and cadence grow with it, and past a
+   * brisk walk the figure leans into a run with bent, pumping arms. Hips sway, the
+   * body leans into turns, and standing still it breathes and looks about.
+   */
   animate(dt: number, speed: number) {
-    const target = speed > 0.1 ? 1 : 0;
-    this.amp += (target - this.amp) * Math.min(1, dt * 10);
-    this.phase += dt * (3 + speed * 2.4);
-    const s = Math.sin(this.phase) * this.amp;
+    const k = (rate: number) => 1 - Math.exp(-dt * rate);
+    const moving = speed > 0.1;
+    this.amp += ((moving ? 1 : 0) - this.amp) * k(8);
+    this.run += (Math.min(1, Math.max(0, (speed - 3) / 2)) - this.run) * k(4);
+    // Cadence: steps come quicker with speed, but stride takes most of the increase.
+    if (moving) this.phase += dt * (2.6 + speed * 1.9);
+    const a = this.amp;
+    const r = this.run;
+    const s = Math.sin(this.phase) * a;
+    const c = Math.cos(this.phase);
+    this.idleT += dt;
+    this.turnLean += (Math.max(-0.14, Math.min(0.14, -this.turnRate * 0.05)) * a - this.turnLean) * k(6);
+    this.turnRate *= Math.exp(-dt * 6);
     if (this.sitting) {
       this.legL.rotation.x = this.legR.rotation.x = -Math.PI / 2;
       this.model.position.y = -0.06;
+      this.model.rotation.set(0, 0, 0);
+      this.model.scale.y = 1 + Math.sin(this.idleT * 2) * 0.008;
       this.armL.rotation.x = this.armR.rotation.x = -0.6;
+      this.armL.rotation.z = this.armR.rotation.z = 0;
+      this.head.rotation.set(0, 0, 0);
       return;
     }
-    this.legL.rotation.x = s * 0.7;
-    this.legR.rotation.x = -s * 0.7;
-    this.model.position.y = Math.abs(Math.cos(this.phase)) * 0.05 * this.amp;
-    const armCarry = -1.2 + s * 0.04;
-    this.armL.rotation.x = this.carrying ? armCarry : -s * 0.6;
-    this.armR.rotation.x = this.carrying ? armCarry : s * 0.6;
+    // Legs: a longer swing when running, and the back leg kicks a little higher.
+    const stride = 0.5 + 0.3 * r;
+    this.legL.rotation.x = s * stride + Math.max(0, -s) * 0.15 * r;
+    this.legR.rotation.x = -s * stride + Math.max(0, s) * 0.15 * r;
+    // Two bobs a stride; running bounces higher. Standing, the chest rises and falls.
+    this.model.position.y = Math.abs(c) * (0.03 + 0.05 * r) * a;
+    this.model.scale.y = 1 + Math.sin(this.idleT * 2.2) * 0.012 * (1 - a);
+    // Lean forward with pace, sway at the hips, twist the shoulders against the stride.
+    this.lean += ((0.03 + 0.16 * r) * a - this.lean) * k(5);
+    this.model.rotation.x = this.lean;
+    this.model.rotation.z = s * 0.035 * (1 - 0.5 * r) + this.turnLean;
+    this.model.rotation.y = s * 0.07 * (1 - 0.4 * r);
+    // Arms swing against the legs; running, they bend forward and pump harder.
+    if (this.carrying) {
+      const hold = -1.2 + s * 0.04;
+      this.armL.rotation.x = this.armR.rotation.x = hold;
+      this.armL.rotation.z = this.armR.rotation.z = 0;
+    } else {
+      const swing = 0.5 + 0.35 * r;
+      const bend = -0.55 * r * a;
+      this.armL.rotation.x = -s * swing + bend;
+      this.armR.rotation.x = s * swing + bend;
+      this.armL.rotation.z = -0.05 - 0.08 * r * a;
+      this.armR.rotation.z = 0.05 + 0.08 * r * a;
+    }
+    // Head: steady on the move (counters the bob and the lean); idle, it looks around now and then.
+    if (a > 0.3) {
+      this.lookAt = 0;
+      this.lookT = 1.5 + Math.random() * 3;
+    } else {
+      this.lookT -= dt;
+      if (this.lookT <= 0) {
+        this.lookT = 2 + Math.random() * 4;
+        this.lookAt = Math.random() < 0.35 ? 0 : (Math.random() - 0.5) * 1.2;
+      }
+    }
+    this.look += (this.lookAt - this.look) * k(3);
+    this.head.rotation.y = this.look - this.model.rotation.y;
+    this.head.rotation.x = -this.lean * 0.6 - c * 0.025 * a + Math.sin(this.idleT * 0.7) * 0.02 * (1 - a);
     // Stack leans back a touch while walking.
-    this.hand.rotation.x += (-this.amp * 0.1 - this.hand.rotation.x) * Math.min(1, dt * 8);
+    this.hand.rotation.x += (-a * 0.1 - this.hand.rotation.x) * Math.min(1, dt * 8);
   }
 
   face(dx: number, dz: number, dt: number) {
@@ -115,8 +183,11 @@ export class Character {
     const t = Math.atan2(dx, dz);
     let d = t - this.yaw;
     d = ((((d + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
-    this.yaw += d * Math.min(1, dt * 12);
+    const step = d * Math.min(1, dt * 12);
+    this.yaw += step;
     this.root.rotation.y = this.yaw;
+    // How fast we're turning (rad/s), for leaning into the turn.
+    if (dt > 0) this.turnRate = step / dt;
   }
 
   setYaw(a: number) {

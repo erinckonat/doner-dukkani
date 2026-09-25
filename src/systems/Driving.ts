@@ -21,6 +21,15 @@ export class Driving {
   /** Last spot on the street while driving: where the car parks if you drive into a building. */
   private lastOut = new THREE.Vector3();
   private heading = 0;
+  /** The car's velocity on the ground (x, z), eased towards what the stick asks for. */
+  private vel = new THREE.Vector2();
+  private prev = new THREE.Vector3();
+  private lastSpeed = 0;
+  private yawRate = 0;
+  private roll = 0;
+  private pitch = 0;
+  private wheelTurn = 0;
+  private t = 0;
 
   constructor(private g: Game) {
     this.btn.addEventListener('click', () => this.toggle());
@@ -80,6 +89,9 @@ export class Driving {
     this.car.root.visible = true;
     this.car.root.position.set(p.pos.x, 0, p.pos.z);
     this.heading = this.car.root.rotation.y;
+    this.vel.set(0, 0);
+    this.lastSpeed = 0;
+    this.prev.copy(p.pos);
     this.lastOut.copy(p.pos);
     p.ch.root.visible = false;
     this.g.sfx.play('moto', 1, 0);
@@ -90,6 +102,8 @@ export class Driving {
   getOut(parkAt?: THREE.Vector3) {
     if (!this.driving) return;
     this.driving = false;
+    this.vel.set(0, 0);
+    this.settle();
     this.g.player.ch.root.visible = true;
     if (this.car && parkAt) this.car.root.position.set(parkAt.x, 0, parkAt.z);
     this.remember();
@@ -102,8 +116,32 @@ export class Driving {
     this.btn.setAttribute('aria-label', this.driving ? TR.car.out : TR.car.in);
   }
 
-  update(dt: number, move: { x: number; z: number }) {
-    if (!this.driving || !this.car) return;
+  /**
+   * Turn the stick into the car's motion: it gathers speed (and sheds it) at a car's
+   * pace rather than at once, and brakes harder than it accelerates.
+   */
+  steer(dt: number, move: { x: number; z: number }) {
+    const target = new THREE.Vector2(move.x, move.z).multiplyScalar(this.speed);
+    const diff = target.clone().sub(this.vel);
+    // Pulling away 9 m/s²; letting go rolls to a stop (6); pulling back brakes hard (18).
+    const rate = target.dot(this.vel) < 0 ? 18 : target.lengthSq() < 0.01 ? 6 : target.length() < this.vel.length() ? 12 : 9;
+    const step = Math.min(diff.length(), rate * dt);
+    if (diff.lengthSq() > 1e-8) this.vel.add(diff.normalize().multiplyScalar(step));
+    const sp = this.vel.length();
+    return sp > 0.05 ? { move: { x: this.vel.x / sp, z: this.vel.y / sp }, speed: sp } : { move: { x: 0, z: 0 }, speed: 0 };
+  }
+
+  /** Back on its springs, wheels straight: how a parked car sits. */
+  private settle() {
+    if (!this.car) return;
+    this.roll = this.pitch = this.wheelTurn = 0;
+    this.car.body.rotation.set(0, 0, 0);
+    this.car.body.position.y = 0;
+    for (const s of this.car.steer) s.rotation.y = 0;
+  }
+
+  update(dt: number, _move: { x: number; z: number }) {
+    if (!this.driving || !this.car || dt <= 0) return;
     const p = this.g.player;
     if (this.g.insideBuilding) {
       // Drove up to a door: the car waits on the street, you walk in.
@@ -112,16 +150,35 @@ export class Driving {
     }
     this.lastOut.copy(p.pos);
     p.ch.root.visible = false;
+    // Where it actually got to: a wall stops the car dead.
+    const real = new THREE.Vector2(p.pos.x - this.prev.x, p.pos.z - this.prev.z).divideScalar(dt);
+    this.prev.copy(p.pos);
+    if (real.length() < this.vel.length() * 0.6) this.vel.setLength(real.length());
+    const sp = this.vel.length();
+    const accel = (sp - this.lastSpeed) / dt;
+    this.lastSpeed = sp;
+    const k = (rate: number) => 1 - Math.exp(-dt * rate);
     const r = this.car.root;
     r.position.set(p.pos.x, 0, p.pos.z);
-    const mag = Math.hypot(move.x, move.z);
-    if (mag > 0.05) {
-      const want = Math.atan2(move.x, move.z);
+    // Point the way it's going (once it's rolling).
+    const before = this.heading;
+    if (sp > 0.4) {
+      const want = Math.atan2(this.vel.x, this.vel.y);
       let d = want - this.heading;
       d = Math.atan2(Math.sin(d), Math.cos(d));
-      this.heading += d * (1 - Math.exp(-dt * 10));
+      this.heading += d * k(Math.min(10, 2 + sp));
     }
     r.rotation.y = this.heading;
-    for (const w of this.car.wheels) w.rotation.x += dt * mag * this.speed * 2.6;
+    this.yawRate += ((this.heading - before) / dt - this.yawRate) * k(10);
+    // Front wheels steer into the turn; the body rolls out of it, dips its nose under
+    // braking and squats under power, and rides a little on its springs.
+    this.wheelTurn += (Math.max(-0.5, Math.min(0.5, this.yawRate * 0.35)) - this.wheelTurn) * k(12);
+    for (const s of this.car.steer) s.rotation.y = this.wheelTurn;
+    this.roll += (Math.max(-0.09, Math.min(0.09, this.yawRate * sp * 0.012)) - this.roll) * k(6);
+    this.pitch += (Math.max(-0.06, Math.min(0.06, -accel * 0.006)) - this.pitch) * k(6);
+    this.t += dt;
+    this.car.body.rotation.set(this.pitch, 0, this.roll);
+    this.car.body.position.y = Math.sin(this.t * 13) * 0.012 * Math.min(1, sp / 10);
+    for (const w of this.car.wheels) w.rotation.x += (sp * dt) / this.car.radius;
   }
 }

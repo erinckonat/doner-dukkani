@@ -806,7 +806,9 @@ export class Game {
     this.time += dt;
     this.updateRects();
     const move = this.activity ? { x: 0, z: 0 } : this.input.move;
-    this.player.update(dt, move, this.driving.driving ? this.driving.speed : this.playerSpeed, this.rects);
+    // At the wheel, the car eases towards what the stick asks for.
+    const drive = this.driving.driving ? this.driving.steer(dt, move) : null;
+    this.player.update(dt, drive ? drive.move : move, drive ? drive.speed : this.playerSpeed, this.rects);
     this.driving.update(dt, move);
     this.updateSeat(move);
 

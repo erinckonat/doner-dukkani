@@ -130,7 +130,7 @@ export class Gallery {
   private garageZone = v(GALLERY.garage[0], GALLERY.garage[1]);
   private spawnT = 2;
   private dealT = 0;
-  private leaving: { obj: THREE.Object3D; path: THREE.Vector3[]; t: number }[] = [];
+  private leaving: { obj: THREE.Object3D; car: ReturnType<typeof makeCarModel>; path: THREE.Vector3[]; speed: number; heading: number }[] = [];
   private time = 0;
 
   constructor(public w: Game) {
@@ -247,7 +247,8 @@ export class Gallery {
   }
 
   private placeCar(p: Podium, model: CarModel, animate: boolean) {
-    const car = makeCarModel(model.style, model.paint).root;
+    const built = makeCarModel(model.style, model.paint);
+    const car = built.root;
     car.position.y = 0.2;
     car.rotation.y = rand(0, Math.PI * 2);
     // Price tag on a stand at the front of the turntable.
@@ -272,6 +273,7 @@ export class Gallery {
     label.position.set(p.pos.x, 0.03, p.pos.z + 2.9);
     this.root.add(label);
     g.userData.label = label;
+    g.userData.car = built;
     p.car = g;
     p.model = model;
     p.claimed = false;
@@ -375,10 +377,14 @@ export class Gallery {
     const car = pod.car;
     (car.userData.label as THREE.Object3D).removeFromParent();
     const from = pod.pos.clone();
+    const heading = car.rotation.y + (car.children[0]?.rotation.y ?? 0);
     car.removeFromParent();
     car.position.set(from.x, 0, from.z);
+    car.rotation.y = 0;
+    car.children[0].rotation.y = heading;
+    car.children[0].position.y = 0; // off the turntable, onto the floor
     this.root.add(car);
-    this.leaving.push({ obj: car, path: [v(from.x * 0.3, 6), v(0, GALLERY.halfD + 1.5), v(-30, GALLERY.street + 4)], t: 0 });
+    this.leaving.push({ obj: car, car: car.userData.car, path: [v(from.x * 0.3, 6), v(0, GALLERY.halfD + 1.5), v(-30, GALLERY.street + 4)], speed: 0, heading });
     pod.car = null;
     pod.model = null;
     pod.claimed = false;
@@ -391,18 +397,26 @@ export class Gallery {
     }
   }
 
+  /** Sold cars pull away gently, turn smoothly towards the door, and drive off down the street. */
   private updateLeaving(dt: number) {
     for (const l of this.leaving) {
       const target = l.path[0];
       if (!target) continue;
+      const body = l.obj.children[0];
       const d = target.clone().sub(l.obj.position);
+      d.y = 0;
       const dist = d.length();
-      const step = dt * 7;
-      l.obj.rotation.y = Math.atan2(d.x, d.z);
-      if (dist <= step) {
-        l.obj.position.copy(target);
-        l.path.shift();
-      } else l.obj.position.addScaledVector(d.normalize(), step);
+      l.speed = Math.min(l.path.length > 1 ? 4 : 9, l.speed + dt * 3);
+      const want = Math.atan2(d.x, d.z);
+      let turn = want - l.heading;
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      l.heading += turn * (1 - Math.exp(-dt * 4));
+      body.rotation.y = l.heading;
+      for (const s of l.car.steer) s.rotation.y = Math.max(-0.5, Math.min(0.5, turn));
+      for (const w of l.car.wheels) w.rotation.x += (l.speed * dt) / l.car.radius;
+      const step = l.speed * dt;
+      if (dist <= Math.max(step, 0.6)) l.path.shift();
+      else l.obj.position.add(new THREE.Vector3(Math.sin(l.heading), 0, Math.cos(l.heading)).multiplyScalar(step));
     }
     for (const l of this.leaving.filter((x) => !x.path.length)) l.obj.removeFromParent();
     this.leaving = this.leaving.filter((x) => x.path.length);
