@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { carModel, type CarModel } from '../config/cars';
 import type { Game } from '../Game';
 import { TR } from '../ui/strings.tr';
+import { GALLERY, GALLERY_ORIGIN } from '../config/gallery';
 import { makeCarModel } from '../world/Vehicles';
+
+/** A new car waits on the pavement outside the gallery, nose along the street. */
+const GALLERY_KERB = new THREE.Vector3(GALLERY_ORIGIN.x + 6, 0, GALLERY_ORIGIN.z + GALLERY.halfD + 4.2);
 
 /**
  * The player's own car. The key button gets you in (the car pulls up where you
@@ -27,10 +31,15 @@ export class Driving {
   get speed() { return this.model?.speed ?? 0; }
   get active() { return this.model; }
 
-  /** Swap to another owned car (or none): the new one appears where the old one stood. */
-  setModel(id: string | null) {
-    const at = this.car?.root.position.clone() ?? this.g.player.pos.clone();
-    const rot = this.car?.root.rotation.y ?? 0;
+  /**
+   * Swap to another owned car (or none). It stands where the last one was parked, or
+   * at `at` (a new car waits outside the gallery); it's always there to see.
+   */
+  setModel(id: string | null, at?: THREE.Vector3) {
+    const gar = this.g.data.garage;
+    const park = gar?.park;
+    const pos = at ?? this.car?.root.position.clone() ?? (park ? new THREE.Vector3(park[0], 0, park[1]) : GALLERY_KERB.clone());
+    const rot = at ? Math.PI / 2 : this.car?.root.rotation.y ?? park?.[2] ?? Math.PI / 2;
     this.car?.root.removeFromParent();
     this.car = null;
     this.model = id ? carModel(id) : null;
@@ -40,11 +49,19 @@ export class Driving {
       return;
     }
     this.car = makeCarModel(this.model.style, this.model.paint);
-    this.car.root.position.copy(at);
+    this.car.root.position.set(pos.x, 0, pos.z);
     this.car.root.rotation.y = rot;
-    this.car.root.visible = this.driving;
     this.g.scene.add(this.car.root);
+    this.remember();
     this.render();
+  }
+
+  /** Keep the parking spot in the save, so the car is where you left it next time. */
+  private remember() {
+    const gar = this.g.data.garage;
+    if (!gar || !this.car) return;
+    const r = this.car.root;
+    gar.park = [Math.round(r.position.x * 10) / 10, Math.round(r.position.z * 10) / 10, Math.round(r.rotation.y * 100) / 100];
   }
 
   toggle() {
@@ -74,7 +91,8 @@ export class Driving {
     if (!this.driving) return;
     this.driving = false;
     this.g.player.ch.root.visible = true;
-    if (this.car && parkAt) this.car.root.position.copy(parkAt);
+    if (this.car && parkAt) this.car.root.position.set(parkAt.x, 0, parkAt.z);
+    this.remember();
     this.render();
   }
 

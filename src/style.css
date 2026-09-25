@@ -183,6 +183,17 @@ button:focus-visible {
 
 .hint[hidden] { display: none; }
 
+/* A quick dip to dark while the bus takes you across town. */
+.fade {
+  position: fixed;
+  inset: 0;
+  background: var(--dark);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s var(--ease-out);
+}
+.fade.on { opacity: 1; }
+
 .toast {
   position: fixed;
   top: 96px;

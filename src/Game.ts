@@ -3,6 +3,7 @@ import { BAL, SHOPS, type ShopId } from './config/balance';
 import { buffAmount, BURGER_PLOT_ID, type Activity, type BuffId, type BusinessDef } from './config/city';
 import { HOTEL, HOTEL_OPEN_COST, HOTEL_ORIGIN, HOTEL_UNLOCKS } from './config/hotel';
 import { CAR_MODELS } from './config/cars';
+import { BUS_FARE, STOP_Z, STOPS } from './config/transit';
 import { GALLERY, GALLERY_OPEN_COST, GALLERY_ORIGIN, GALLERY_UNLOCKS } from './config/gallery';
 import { MALL, MALL_OPEN_COST, MALL_ORIGIN } from './config/mall';
 import { MARKET, MARKET_OPEN_COST, MARKET_ORIGIN, MARKET_UNLOCKS } from './config/market';
@@ -40,6 +41,7 @@ import { buildCity, type CityRefs } from './world/City';
 import { SHOP_ORIGIN_X, START_POS } from './world/layout';
 import { buildMallSite, type MallSite } from './world/MallSite';
 import { buildGalleryLot, buildNeighborhood } from './world/Neighborhood';
+import { buildStops } from './world/Stops';
 import { buildMarketSite, type MarketSite } from './world/MarketSite';
 
 const TUTORIAL_STEPS = TR.hints.length;
@@ -106,6 +108,7 @@ export class Game {
   private galleryTile: UnlockTile | null = null;
   private galleryLot!: ReturnType<typeof buildGalleryLot>;
   private hood!: ReturnType<typeof buildNeighborhood>;
+  private stops!: ReturnType<typeof buildStops>;
   private pads: StreetPad[] = [];
   private mallSite: MallSite;
   private site: MarketSite;
@@ -150,7 +153,8 @@ export class Game {
 
     this.city = buildCity(this.scene);
     this.hood = buildNeighborhood(this.scene);
-    this.pads = [...this.city.pads.map((p) => ({ biz: p.biz, pos: p.pos })), ...this.hood.pads];
+    this.stops = buildStops(this.scene);
+    this.pads = [...this.city.pads.map((p) => ({ biz: p.biz, pos: p.pos })), ...this.hood.pads, ...this.stops.pads];
     this.estate = new Estate(this, this.scene);
     this.ambient = new Ambient(this.scene);
 
@@ -511,13 +515,36 @@ export class Game {
     this.save();
   }
 
+  /** Ride the bus to another stop: a short fade, and you step off beside its shelter. */
+  travel(id: string) {
+    const stop = STOPS.find((s) => s.id === id);
+    if (!stop || this.data.money < BUS_FARE || this.activity) return;
+    this.data.money -= BUS_FARE;
+    this.driving.getOut();
+    this.activityPanel.close();
+    this.sfx.play('order', 1, 0);
+    const fade = document.getElementById('fade')!;
+    fade.classList.add('on');
+    setTimeout(() => {
+      // Just west of the ring, so the stop's panel doesn't open again on arrival.
+      this.player.pos.set(stop.x - 1.8, 0, STOP_Z);
+      this.updateCamera(0, true);
+      fade.classList.remove('on');
+      this.hud.toast(TR.bus.arrived(stop.name));
+    }, this.reduced ? 0 : 280);
+  }
+
   buyCar(id: string) {
     const c = CAR_MODELS.find((x) => x.id === id);
     const gar = (this.data.garage ??= { owned: [], active: null });
     if (!c || gar.owned.includes(id) || this.data.money < c.price) return;
     this.data.money -= c.price;
     gar.owned.push(id);
-    this.useCar(id);
+    gar.active = id;
+    // The new car is waiting outside the gallery.
+    this.driving.getOut();
+    this.driving.setModel(id, new THREE.Vector3(GALLERY_ORIGIN.x + 6, 0, GALLERY_ORIGIN.z + GALLERY.halfD + 4.2));
+    this.save();
     this.celebrateAtPlayer();
     this.sfx.play('unlock', 1, 0);
     this.hud.toast(TR.car.bought(c.name));
@@ -586,7 +613,7 @@ export class Game {
     this.goals.close();
     // The bank's door leads to the stock exchange.
     if (pad.biz?.kind === 'bank') this.borsa.open();
-    else this.activityPanel.open({ biz: pad.biz, prop: pad.prop, office: pad.office });
+    else this.activityPanel.open({ biz: pad.biz, prop: pad.prop, office: pad.office, stop: pad.stop });
   }
 
   /** The garage ring in the gallery opens the car shop. */
@@ -717,6 +744,7 @@ export class Game {
       ...this.mallSite.rects,
       ...(this.mall ? this.mall.worldRects() : [this.mallSite.lotRect]),
       ...this.hood.rects,
+      ...this.stops.rects,
       ...(this.gallery ? this.gallery.worldRects() : [this.galleryLot.lotRect]),
       ...this.shops.flatMap((s) => s.worldRects()),
     ];

@@ -53,7 +53,8 @@ export interface SaveData extends ShopState {
   /** Oto Galeri: the car on each turntable (null while one's on its way) and cars sold. */
   gallery?: ShopState & { stock: (string | null)[]; sold: number };
   /** The player's own cars and the one they drive. */
-  garage?: { owned: string[]; active: string | null };
+  /** `park`: where the car stands when you're not in it (x, z, heading). */
+  garage?: { owned: string[]; active: string | null; park?: [number, number, number] };
   /** Buildings the player owns: let or not, renovation level, rent waiting at the door. */
   estate?: { props: Record<string, { rented: boolean; level: number; due: number }>; manager?: boolean };
   /** Stock exchange: prices, the player's holdings, and how much of each own company is public. */

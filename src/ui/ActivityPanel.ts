@@ -1,6 +1,7 @@
 import { CAR_MODELS } from '../config/cars';
 import type { Activity, BusinessDef } from '../config/city';
 import { ESTATE_MANAGER_COST, PROPERTIES, property, RENOVATE, type PropertyDef } from '../config/estate';
+import { BUS_FARE, STOPS, type Stop } from '../config/transit';
 import type { Game } from '../Game';
 import { fmtMoney } from './Hud';
 import { TR } from './strings.tr';
@@ -19,6 +20,7 @@ export interface PanelTarget {
   prop?: PropertyDef;
   office?: boolean;
   garage?: boolean;
+  stop?: Stop;
 }
 
 const row = (title: string, text: string, button: string) => `<li class="upg">
@@ -55,6 +57,7 @@ export class ActivityPanel {
         case 'manager': est.hireManager(); break;
         case 'car-buy': this.g.buyCar(id); break;
         case 'car-use': this.g.useCar(id); break;
+        case 'bus': this.g.travel(id); return;
       }
       this.render();
     });
@@ -66,10 +69,10 @@ export class ActivityPanel {
     this.t = t;
     const prop = t.prop ?? (t.biz ? property(t.biz.id) : undefined);
     this.t.prop = prop;
-    $('activity-title').textContent = t.garage ? TR.car.title
+    $('activity-title').textContent = t.stop ? TR.bus.title : t.garage ? TR.car.title
       : t.office ? TR.estate.office
       : t.biz ? TR.city.name[t.biz.id as keyof typeof TR.city.name] ?? '' : prop?.name ?? '';
-    $('activity-sub').textContent = t.garage ? TR.car.sub
+    $('activity-sub').textContent = t.stop ? TR.bus.sub(fmtMoney(BUS_FARE)) : t.garage ? TR.car.sub
       : t.office ? TR.estate.officeSub
       : t.biz ? TR.city.about[t.biz.id] ?? '' : prop ? TR.estate.kind[prop.kind] : '';
     this.render();
@@ -94,6 +97,9 @@ export class ActivityPanel {
     if (!t) return;
     const money = this.g.money;
     const parts: string[] = [];
+    if (t.stop) parts.push(STOPS.map((s) => row(s.name, '', s.id === t.stop!.id
+      ? btn('bus', s.id, TR.bus.here, true)
+      : btn('bus', s.id, TR.bus.go, money < BUS_FARE, fmtMoney(BUS_FARE)))).join(''));
     if (t.garage) parts.push(this.garageRows(money));
     if (t.office) parts.push(this.officeRows(money));
     if (t.biz) {

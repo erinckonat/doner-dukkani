@@ -241,7 +241,15 @@ export const TR = {
     buy: 'Satın al',
     use: 'Bin',
     using: 'Kullanılıyor',
-    bought: (name: string) => `${name} senin! Sağ üstteki anahtarla bin.`,
+    bought: (name: string) => `${name} senin! Galerinin önünde seni bekliyor, sağ üstteki anahtarla bin.`,
+  },
+  bus: {
+    ring: 'DURAK',
+    title: 'Otobüs Durağı',
+    sub: (fare: string) => `Caddedeki başka bir durağa git. Bilet ${fare}.`,
+    here: 'Buradasın',
+    go: 'Git',
+    arrived: (name: string) => `${name} durağına geldin`,
   },
   gallery: {
     name: 'Oto Galeri',
