@@ -115,7 +115,7 @@ export const priceOf = (kind: ProductKind, priceLevel: number) =>
 // ---------- shops ----------
 
 export type ShopId = 'doner' | 'burger';
-export type StaffRole = 'manager' | 'cashier' | 'carrier' | 'cleaner' | 'stocker' | 'receptionist' | 'housekeeper' | 'accountant' | 'usher';
+export type StaffRole = 'manager' | 'cashier' | 'carrier' | 'cleaner' | 'stocker' | 'receptionist' | 'housekeeper' | 'accountant' | 'usher' | 'salesperson';
 export type UnlockKind = 'table' | 'producer' | 'office' | 'hr' | 'window' | 'menu';
 
 export interface UnlockDef {
@@ -128,7 +128,7 @@ export interface UnlockDef {
 }
 
 export type HireId = 'manager' | 'cashier' | 'carrier' | 'cleaner' | 'cashierWindow' | 'stocker' | 'checkout2' | 'checkout3'
-  | 'receptionist' | 'housekeeper' | 'accountant' | 'mallCleaner' | 'usher';
+  | 'receptionist' | 'housekeeper' | 'accountant' | 'mallCleaner' | 'usher' | 'salesperson';
 
 export interface HireDef {
   id: HireId;

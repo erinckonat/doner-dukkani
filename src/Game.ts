@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { BAL, SHOPS, type ShopId } from './config/balance';
 import { buffAmount, BURGER_PLOT_ID, type Activity, type BuffId, type BusinessDef } from './config/city';
 import { HOTEL, HOTEL_OPEN_COST, HOTEL_ORIGIN, HOTEL_UNLOCKS } from './config/hotel';
+import { CAR_MODELS } from './config/cars';
+import { GALLERY, GALLERY_OPEN_COST, GALLERY_ORIGIN, GALLERY_UNLOCKS } from './config/gallery';
 import { MALL, MALL_OPEN_COST, MALL_ORIGIN } from './config/mall';
 import { MARKET, MARKET_OPEN_COST, MARKET_ORIGIN, MARKET_UNLOCKS } from './config/market';
 import { Sfx } from './core/Audio';
@@ -14,16 +16,19 @@ import { dist2 } from './entities/Agent';
 import { Ambient } from './entities/Ambient';
 import { Player } from './entities/Player';
 import { freshHotel, Hotel, hotelAssets, hotelStaffedIncome } from './Hotel';
+import { freshGallery, Gallery, galleryStaffedIncome } from './Gallery';
 import { freshMall, Mall, MALL_UNLOCK_COUNT, mallAssets, mallStaffedIncome } from './Mall';
 import { freshMarket, Market, marketAssets, marketStaffedIncome } from './Market';
 import { Shop, shopAssets, staffedIncome } from './Shop';
 import type { DeskKind } from './stations/Props';
 import { UnlockTile, type TileDef } from './stations/UnlockTile';
 import { Confetti, FloatingText, makeArrow } from './systems/Effects';
+import { Driving } from './systems/Driving';
+import { Estate } from './systems/Estate';
 import { Events } from './systems/Events';
 import { Exchange, type OwnId } from './systems/Exchange';
 import { Rain } from './systems/Weather';
-import { ActivityPanel } from './ui/ActivityPanel';
+import { ActivityPanel, type PanelTarget } from './ui/ActivityPanel';
 import { BorsaPanel } from './ui/BorsaPanel';
 import { EventBanner } from './ui/EventBanner';
 import { GoalCard } from './ui/GoalCard';
@@ -31,9 +36,10 @@ import { fmtMoney, Hud } from './ui/Hud';
 import { TR } from './ui/strings.tr';
 import { SavePanel } from './ui/SavePanel';
 import { UpgradePanel } from './ui/UpgradePanel';
-import { buildCity, type BusinessPad, type CityRefs } from './world/City';
+import { buildCity, type CityRefs } from './world/City';
 import { SHOP_ORIGIN_X, START_POS } from './world/layout';
 import { buildMallSite, type MallSite } from './world/MallSite';
+import { buildGalleryLot, buildNeighborhood } from './world/Neighborhood';
 import { buildMarketSite, type MarketSite } from './world/MarketSite';
 
 const TUTORIAL_STEPS = TR.hints.length;
@@ -44,8 +50,12 @@ const VALUE_SECONDS = 20000;
 const MARKET_PLOT_ID = 'market';
 const HOTEL_PLOT_ID = 'hotel';
 const MALL_PLOT_ID = 'mall';
+const GALLERY_PLOT_ID = 'gallery';
 
-interface ActivityRun { biz: BusinessDef; act: Activity; t: number; pad: BusinessPad }
+/** A ring on the pavement in front of a door: a business, a property, the estate office. */
+interface StreetPad extends PanelTarget { pos: THREE.Vector3 }
+
+interface ActivityRun { biz: BusinessDef; act: Activity; t: number; pad: StreetPad }
 
 /**
  * The high street: the player, the shops they own (each running on its own), the
@@ -69,6 +79,9 @@ export class Game {
   market: Market | null = null;
   hotel: Hotel | null = null;
   mall: Mall | null = null;
+  gallery: Gallery | null = null;
+  estate!: Estate;
+  driving!: Driving;
   exchange: Exchange;
   borsa: BorsaPanel;
   goals: GoalCard;
@@ -90,17 +103,21 @@ export class Game {
   private marketTile: UnlockTile | null = null;
   private hotelTile: UnlockTile | null = null;
   private mallTile: UnlockTile | null = null;
+  private galleryTile: UnlockTile | null = null;
+  private galleryLot!: ReturnType<typeof buildGalleryLot>;
+  private hood!: ReturnType<typeof buildNeighborhood>;
+  private pads: StreetPad[] = [];
   private mallSite: MallSite;
   private site: MarketSite;
   /** Where the player is: one of the shops or the market. */
-  area: Shop | Market | Hotel | Mall | null = null;
+  area: Shop | Market | Hotel | Mall | Gallery | null = null;
   private confetti: Confetti;
   private arrow: ReturnType<typeof makeArrow>;
   private saveT = 0;
   private buffT = 0;
   private last = 0;
   private deskInside: DeskKind | null = null;
-  private padInside: BusinessPad | null = null;
+  private padInside: StreetPad | null = null;
   private padHold = 0;
   private activity: ActivityRun | null = null;
   private active: Shop | null = null;
@@ -132,6 +149,9 @@ export class Game {
     this.sfx.enabled = this.data.sound;
 
     this.city = buildCity(this.scene);
+    this.hood = buildNeighborhood(this.scene);
+    this.pads = [...this.city.pads.map((p) => ({ biz: p.biz, pos: p.pos })), ...this.hood.pads];
+    this.estate = new Estate(this, this.scene);
     this.ambient = new Ambient(this.scene);
 
     this.player = new Player(this.flyer, () => this.playerCap);
@@ -175,6 +195,14 @@ export class Game {
     this.mallSite = buildMallSite(this.scene);
     if (this.data.mall) this.openMall(false);
     else this.refreshMallTile();
+    // The car gallery's plot at the west end, on sale from the start.
+    this.galleryLot = buildGalleryLot(this.scene, GALLERY_ORIGIN.x, GALLERY_ORIGIN.z, GALLERY.halfW, GALLERY.halfD);
+    if (this.data.gallery) this.openGallery(false);
+    else {
+      const t = this.galleryLot.tile;
+      this.galleryTile = new UnlockTile({ id: GALLERY_PLOT_ID, cost: GALLERY_OPEN_COST, x: t.x, z: t.z, label: TR.gallery.plotLabel }, this.data.paid[GALLERY_PLOT_ID] ?? 0, this.scene);
+    }
+    this.driving = new Driving(this);
 
     const g = this;
     this.exchange = new Exchange(this.data.exchange, {
@@ -262,6 +290,19 @@ export class Game {
     return !!this.hotel && Math.abs(p.x - x) < HOTEL.halfW + 0.6 && p.z > z - HOTEL.halfD - 1 && p.z < z + HOTEL.halfD + 0.4;
   }
 
+  private get inGallery() {
+    const p = this.player.pos;
+    const { x, z } = GALLERY_ORIGIN;
+    return !!this.gallery && Math.abs(p.x - x) < GALLERY.halfW + 0.6 && p.z > z - GALLERY.halfD - 1 && p.z < z + GALLERY.halfD + 0.4;
+  }
+
+  /** Inside any building (a shop's room, the market, hotel, mall or gallery): no cars in there. */
+  get insideBuilding() {
+    if (this.inMarket || this.inHotel || this.inMall || this.inGallery) return true;
+    const p = this.player.pos;
+    return this.shops.some((s) => Math.abs(p.x - s.ox) < 10.4 && p.z < 9.2 && p.z > -9.6);
+  }
+
   private get inMall() {
     const p = this.player.pos;
     const { x, z } = MALL_ORIGIN;
@@ -317,6 +358,7 @@ export class Game {
     if (this.area && this.area === this.market) this.hud.setProgress(this.market.ss.unlocked.length, MARKET_UNLOCKS.length, TR.market.progress);
     if (this.area && this.area === this.hotel) this.hud.setProgress(this.hotel.ss.unlocked.length, HOTEL_UNLOCKS.length, TR.hotel.progress);
     if (this.area && this.area === this.mall) this.hud.setProgress(this.mall.ss.unlocked.length, MALL_UNLOCK_COUNT, TR.mall.progress);
+    if (this.area && this.area === this.gallery) this.hud.setProgress(this.gallery.ss.unlocked.length, GALLERY_UNLOCKS.length, TR.gallery.progress);
   }
 
   onShopProgress(s: Shop) {
@@ -444,12 +486,59 @@ export class Game {
     this.save();
   }
 
+  // ---------- the car gallery and the player's cars ----------
+
+  private openGallery(animate: boolean) {
+    this.data.gallery ??= freshGallery();
+    this.galleryLot.lot.removeFromParent();
+    this.gallery = new Gallery(this);
+    this.rectsKey = '';
+    if (animate) {
+      this.celebrate(new THREE.Object3D(), new THREE.Vector3(GALLERY_ORIGIN.x, 0, GALLERY_ORIGIN.z + GALLERY.halfD + 2));
+      this.hud.toast(TR.gallery.opened);
+    }
+  }
+
+  private updateGalleryTile(dt: number) {
+    const tile = this.galleryTile;
+    if (!tile) return;
+    tile.update(this.reduced ? 0 : this.time);
+    if (!this.payTile(tile, dist2(this.player.pos, tile.pos) < 0.95 * 0.95, dt, this.data.paid)) return;
+    delete this.data.paid[GALLERY_PLOT_ID];
+    tile.dispose();
+    this.galleryTile = null;
+    this.openGallery(true);
+    this.save();
+  }
+
+  buyCar(id: string) {
+    const c = CAR_MODELS.find((x) => x.id === id);
+    const gar = (this.data.garage ??= { owned: [], active: null });
+    if (!c || gar.owned.includes(id) || this.data.money < c.price) return;
+    this.data.money -= c.price;
+    gar.owned.push(id);
+    this.useCar(id);
+    this.celebrateAtPlayer();
+    this.sfx.play('unlock', 1, 0);
+    this.hud.toast(TR.car.bought(c.name));
+  }
+
+  useCar(id: string) {
+    const gar = this.data.garage;
+    if (!gar?.owned.includes(id)) return;
+    gar.active = id;
+    this.driving.setModel(id);
+    this.save();
+  }
+
   // ---------- businesses across the street ----------
 
   startActivity(biz: BusinessDef, act: Activity) {
-    const pad = this.city.pads.find((p) => p.biz === biz);
-    if (this.activity || !pad || this.data.money < act.price) return;
-    this.data.money -= act.price;
+    const pad = this.pads.find((p) => p.biz === biz);
+    // Your own business: its services are on the house.
+    const price = this.estate.owns(biz.id) ? 0 : act.price;
+    if (this.activity || !pad || this.data.money < price) return;
+    this.data.money -= price;
     (this.data.stats ??= freshStats()).visits++;
     this.activity = { biz, act, t: 0, pad };
     this.activityPanel.close();
@@ -482,7 +571,7 @@ export class Game {
 
   private updatePads(dt: number) {
     if (this.activity) return;
-    const pad = this.city.pads.find((p) => dist2(this.player.pos, p.pos) < 0.9 * 0.9) ?? null;
+    const pad = this.pads.find((p) => dist2(this.player.pos, p.pos) < 0.9 * 0.9) ?? null;
     if (pad !== this.padInside) {
       this.padInside = pad;
       this.padHold = 0;
@@ -491,13 +580,25 @@ export class Game {
     if (!pad || this.activityPanel.isOpen || this.borsa.isOpen) return;
     this.padHold += dt;
     if (this.padHold < 0.4) return;
+    this.driving.getOut();
     this.panel.close();
     this.savePanel.close();
     this.goals.close();
     // The bank's door leads to the stock exchange.
-    if (pad.biz.kind === 'bank') this.borsa.open();
-    else this.activityPanel.open(pad.biz);
+    if (pad.biz?.kind === 'bank') this.borsa.open();
+    else this.activityPanel.open({ biz: pad.biz, prop: pad.prop, office: pad.office });
   }
+
+  /** The garage ring in the gallery opens the car shop. */
+  private updateGarage() {
+    const g = this.gallery;
+    const at = !!g && this.inGallery && g.atGarage(g.toLocal(this.player.pos));
+    if (at && !this.activityPanel.isOpen) this.activityPanel.open({ garage: true });
+    if (!at && this.atGarage) this.activityPanel.close();
+    this.atGarage = at;
+  }
+
+  private atGarage = false;
 
   private updateBuffChips(dt: number) {
     this.buffT -= dt;
@@ -522,10 +623,13 @@ export class Game {
     const rate = (['doner', 'burger'] as ShopId[]).reduce((s, id) => s + staffedIncome(this.data, id) * this.ownerShare(id), 0)
       + marketStaffedIncome(this.data) * this.ownerShare('market')
       + hotelStaffedIncome(this.data) * this.ownerShare('hotel')
-      + mallStaffedIncome(this.data) * this.ownerShare('mall');
-    const earn = Math.floor(secs * rate * BAL.offlineRate);
+      + mallStaffedIncome(this.data) * this.ownerShare('mall')
+      + galleryStaffedIncome(this.data);
+    // Rent keeps coming in too: into each door's box, or the account with a manager.
+    const rent = this.estate.offline(secs);
+    const earn = Math.floor(secs * rate * BAL.offlineRate + rent);
     if (earn < 1) return;
-    this.data.money += earn;
+    this.data.money += earn - rent;
     setTimeout(() => this.hud.toast(TR.offline(fmtMoney(earn))), 600);
   }
 
@@ -571,7 +675,7 @@ export class Game {
 
   private updateDesks() {
     const s = this.active!;
-    const m = this.inMarket ? this.market : this.inHotel ? this.hotel : this.inMall ? this.mall : null;
+    const m = this.inMarket ? this.market : this.inHotel ? this.hotel : this.inMall ? this.mall : this.inGallery ? this.gallery : null;
     const kind = m
       ? m.deskAt(m.toLocal(this.player.pos))
       : this.inPlot(s) ? s.deskAt(new THREE.Vector3(this.player.pos.x - s.ox, 0, this.player.pos.z)) : null;
@@ -603,7 +707,7 @@ export class Game {
 
   /** Player collision: city buildings plus every shop's current obstacles. */
   private updateRects() {
-    const key = [...this.shops.map((s) => s.rectsVersion), this.market?.rectsVersion ?? -1, this.hotel?.rectsVersion ?? -1, this.mall?.rectsVersion ?? -1].join();
+    const key = [...this.shops.map((s) => s.rectsVersion), this.market?.rectsVersion ?? -1, this.hotel?.rectsVersion ?? -1, this.mall?.rectsVersion ?? -1, this.gallery?.rectsVersion ?? -1].join();
     if (key === this.rectsKey) return;
     this.rectsKey = key;
     this.rects = [
@@ -612,13 +716,15 @@ export class Game {
       ...(this.hotel ? [...this.hotel.worldRects(), ...this.site.hotelRing] : [this.site.gardenRect]),
       ...this.mallSite.rects,
       ...(this.mall ? this.mall.worldRects() : [this.mallSite.lotRect]),
+      ...this.hood.rects,
+      ...(this.gallery ? this.gallery.worldRects() : [this.galleryLot.lotRect]),
       ...this.shops.flatMap((s) => s.worldRects()),
     ];
   }
 
   private updateAmbience(dt: number) {
-    if (this.inMarket || this.inHotel || this.inMall) {
-      this.sfx.update(dt, (this.inMarket ? this.market! : this.inHotel ? this.hotel! : this.mall!).crowd, 0, 0);
+    if (this.inMarket || this.inHotel || this.inMall || this.inGallery) {
+      this.sfx.update(dt, (this.inMarket ? this.market! : this.inHotel ? this.hotel! : this.inMall ? this.mall! : this.gallery!).crowd, 0, 0);
       return;
     }
     const s = this.active!;
@@ -672,15 +778,17 @@ export class Game {
     this.time += dt;
     this.updateRects();
     const move = this.activity ? { x: 0, z: 0 } : this.input.move;
-    this.player.update(dt, move, this.playerSpeed, this.rects);
+    this.player.update(dt, move, this.driving.driving ? this.driving.speed : this.playerSpeed, this.rects);
+    this.driving.update(dt, move);
     this.updateSeat(move);
 
     const active = (this.active = this.activeShop());
     const inMarket = this.inMarket;
     const inHotel = this.inHotel;
     const inMall = this.inMall;
-    const elsewhere = inMarket || inHotel || inMall;
-    const area = inMarket ? this.market : inHotel ? this.hotel : inMall ? this.mall : active;
+    const inGallery = this.inGallery;
+    const elsewhere = inMarket || inHotel || inMall || inGallery;
+    const area = inMarket ? this.market : inHotel ? this.hotel : inMall ? this.mall : inGallery ? this.gallery : active;
     if (area !== this.area) {
       this.area = area;
       if (elsewhere) this.onBusinessProgress();
@@ -712,6 +820,10 @@ export class Game {
     this.updateMarketTile(dt);
     this.updateHotelTile(dt);
     this.updateMallTile(dt);
+    this.updateGalleryTile(dt);
+    this.gallery?.update(dt, p, inGallery && !this.activity);
+    this.updateGarage();
+    this.estate.update(dt);
     this.borsa.update(dt, this.exchange.update(dt));
     this.updatePads(dt);
     this.updateActivity(dt);

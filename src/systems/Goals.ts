@@ -1,5 +1,6 @@
 import { SHOPS, type ShopId } from '../config/balance';
 import { HOTEL_UNLOCKS, UPPER_FLOOR } from '../config/hotel';
+import { PROPERTIES } from '../config/estate';
 import { MALL_FLOORS, MALL_UNITS } from '../config/mall';
 import { MARKET_UNLOCKS } from '../config/market';
 import { freshStats, type SaveData, type ShopState } from '../core/Save';
@@ -61,6 +62,14 @@ export const GOALS: GoalDef[] = [
   { id: 'mallFloor2', text: 'AVM\'nin 2. katını aç: yemek katı ve sinema', target: 1, progress: (d) => has(d.mall, 'mfloor2') },
   { id: 'mallSeans', text: 'Sinemaksimum\'da ilk seansı başlat', target: 1, progress: (d) => Math.min(1, d.mall?.seanses ?? 0) },
   { id: 'mallDone', text: 'AVM\'yi %100 tamamla', target: MALL_UNITS.length + MALL_FLOORS.length, progress: (d) => [...MALL_UNITS, ...MALL_FLOORS].filter((u) => d.mall?.unlocked.includes(u.id)).length },
+  // The west end: the car gallery, a car of your own, property.
+  { id: 'gallery', text: 'Caddenin batısında Oto Galeri kur', target: 1, progress: (d) => (d.gallery ? 1 : 0) },
+  { id: 'car', text: 'Galerinin garajından kendine araba al', target: 1, progress: (d) => (d.garage?.owned.length ? 1 : 0) },
+  { id: 'carsSold', text: 'Galeride 10 araba sat', target: 10, progress: (d) => d.gallery?.sold ?? 0 },
+  { id: 'house', text: 'Bir ev ya da apartman satın al', target: 1, progress: (d) => PROPERTIES.filter((p) => p.kind !== 'shop' && d.estate?.props[p.id]).length },
+  { id: 'rentOut', text: 'Aldığın bir evi kiraya ver', target: 1, progress: (d) => (Object.values(d.estate?.props ?? {}).some((p) => p.rented) ? 1 : 0) },
+  { id: 'streetShops', text: 'Karşıdaki dört dükkanın hepsini satın al', target: 4, progress: (d) => PROPERTIES.filter((p) => p.kind === 'shop' && d.estate?.props[p.id]).length },
+  { id: 'estateManager', text: 'Emlak ofisinden emlak yöneticisi tut', target: 1, progress: (d) => (d.estate?.manager ? 1 : 0) },
 ];
 
 /** After the list, the street keeps going: each goal doubles the lifetime takings. */

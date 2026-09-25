@@ -157,6 +157,10 @@ button:focus-visible {
 .icon-btn.small { width: 40px; height: 40px; box-shadow: none; background: rgba(42, 30, 24, 0.06); }
 .icon-btn.small:hover { background: rgba(42, 30, 24, 0.12); }
 #sound-btn .off, #sound-btn.muted .on { display: none; }
+.icon-btn[hidden] { display: none; }
+/* The car key: gold while you're at the wheel. */
+.icon-btn.car.on { background: var(--gold); color: var(--dark); }
+.icon-btn.car.on:hover { background: #ebb562; }
 #sound-btn.muted .off { display: block; }
 
 .hint {

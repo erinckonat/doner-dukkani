@@ -1,5 +1,6 @@
 import { hireCost, hireMax, HR_UPGRADES, MACHINE_PRICE, MALL_UPGRADES, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type ProductKind, type ShopId, type UpgradeId } from '../config/balance';
 import type { Game } from '../Game';
+import type { Gallery } from '../Gallery';
 import type { Hotel } from '../Hotel';
 import type { Mall } from '../Mall';
 import type { Market } from '../Market';
@@ -17,7 +18,7 @@ export class UpgradePanel {
   private refreshT = 0;
   private kind: DeskKind = 'office';
   /** The shop (or the market) whose desk the player is at. */
-  private s: Shop | Market | Hotel | Mall | null = null;
+  private s: Shop | Market | Hotel | Mall | Gallery | null = null;
   /** Hire row whose "Çıkar" was pressed once and now asks for confirmation. */
   private confirmFire: HireId | null = null;
   private confirmTimer = 0;
@@ -37,13 +38,13 @@ export class UpgradePanel {
     });
   }
 
-  open(kind: DeskKind, shop: Shop | Market | Hotel | Mall) {
+  open(kind: DeskKind, shop: Shop | Market | Hotel | Mall | Gallery) {
     if (this.isOpen && this.kind === kind && this.s === shop) return;
     this.kind = kind;
     this.s = shop;
     this.isOpen = true;
     this.title.textContent = kind === 'office' ? TR.panelTitle : TR.hrTitle;
-    this.sub.textContent = kind === 'office' ? TR.panelSub : shop.id === 'market' ? TR.market.hrSub : shop.id === 'hotel' ? TR.hotel.hrSub : shop.id === 'mall' ? TR.mall.hrSub : TR.hrSub;
+    this.sub.textContent = kind === 'office' ? TR.panelSub : shop.id === 'market' ? TR.market.hrSub : shop.id === 'hotel' ? TR.hotel.hrSub : shop.id === 'mall' ? TR.mall.hrSub : shop.id === 'gallery' ? TR.gallery.hrSub : TR.hrSub;
     this.render();
     this.wrap.hidden = false;
   }
@@ -147,8 +148,8 @@ export class UpgradePanel {
       ? OFFICE_UPGRADES.map((id) => this.upgradeRow(id)).join('') + this.machineRows(this.s as Shop)
       : this.s.def.hires.map((h) => this.hireRow(h)).join('')
         + (this.s.id === 'mall' ? `<li class="upg section">${TR.mallSection}</li>` + MALL_UPGRADES.map((id) => this.upgradeRow(id)).join('') : '')
-        + `<li class="upg section">${TR.staffSection}</li>`
-        + HR_UPGRADES.map((id) => this.upgradeRow(id)).join('');
+        // The gallery's one salesperson stands still: no staff speed or carrying to train.
+        + (this.s.id === 'gallery' ? '' : `<li class="upg section">${TR.staffSection}</li>` + HR_UPGRADES.map((id) => this.upgradeRow(id)).join(''));
     if (html === this.list.innerHTML) return;
     const focused = (document.activeElement as HTMLElement | null)?.dataset?.id;
     this.list.innerHTML = html;

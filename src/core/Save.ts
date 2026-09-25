@@ -50,6 +50,12 @@ export interface SaveData extends ShopState {
   hotel?: ShopState & { dirty: number[] };
   /** Lale Park AVM: rent waiting in the safe, rent ever collected, showings run. */
   mall?: ShopState & { rentDue: number; collected: number; seanses: number };
+  /** Oto Galeri: the car on each turntable (null while one's on its way) and cars sold. */
+  gallery?: ShopState & { stock: (string | null)[]; sold: number };
+  /** The player's own cars and the one they drive. */
+  garage?: { owned: string[]; active: string | null };
+  /** Buildings the player owns: let or not, renovation level, rent waiting at the door. */
+  estate?: { props: Record<string, { rented: boolean; level: number; due: number }>; manager?: boolean };
   /** Stock exchange: prices, the player's holdings, and how much of each own company is public. */
   exchange?: ExchangeState;
   /** Timed boosts from the gym, barber, café and pide salon. */
