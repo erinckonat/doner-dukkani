@@ -48,6 +48,8 @@ export interface SaveData extends ShopState {
   };
   /** The five-star hotel; `dirty` lists rooms waiting to be made up. */
   hotel?: ShopState & { dirty: number[] };
+  /** Lale Park AVM: rent waiting in the safe, rent ever collected, showings run. */
+  mall?: ShopState & { rentDue: number; collected: number; seanses: number };
   /** Stock exchange: prices, the player's holdings, and how much of each own company is public. */
   exchange?: ExchangeState;
   /** Timed boosts from the gym, barber, café and pide salon. */

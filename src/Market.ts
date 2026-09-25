@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Door } from './stations/Door';
 import { BAL, hireCost, hireMax, UPGRADES, upgradeCost, type HireDef, type HireId, type UpgradeId } from './config/balance';
 import { buffAmount } from './config/city';
 import {
@@ -117,6 +118,7 @@ export class Market {
   checkouts: Checkout[] = [];
   staff: MarketStaff[] = [];
   shoppers: Shopper[] = [];
+  doors: Door[] = [];
   tiles: UnlockTile[] = [];
   hr: Desk | null = null;
   rects: Rect[] = [];
@@ -212,6 +214,16 @@ export class Market {
     this.wall({ x0: s.x0 - T, x1: s.x1 + T, z0: s.z0 - T, z1: s.z0 }, 2.6, '#D7CDBB').castShadow = false;
     this.wall({ x0: s.x1, x1: s.x1 + T, z0: s.z0, z1: s.truckDoorZ0 }, 2.2, '#D7CDBB');
     this.wall({ x0: s.x1, x1: s.x1 + T, z0: s.truckDoorZ1, z1: -D }, 2.2, '#D7CDBB');
+    // Automatic glass doors: one in the entrance, three across the wide checkout exit;
+    // swing doors into the stockroom.
+    const BLUE = '#2F5D8C';
+    this.doors.push(new Door(this.root, { x: (M.entrance.x0 + M.entrance.x1) / 2, z: D + T / 2, width: M.entrance.x1 - M.entrance.x0, height: 1.5, style: 'slide', color: BLUE }));
+    const bays = 3;
+    const bay = (M.exit.x1 - M.exit.x0) / bays;
+    for (let i = 0; i < bays; i++) {
+      this.doors.push(new Door(this.root, { x: M.exit.x0 + bay * (i + 0.5), z: D + T / 2, width: bay, height: 1.5, style: 'slide', color: BLUE }));
+    }
+    this.doors.push(new Door(this.root, { x: (s.doorX0 + s.doorX1) / 2, z: -D - T / 2, width: s.doorX1 - s.doorX0, height: 2.2, style: 'swing', double: true, into: -1, color: '#8C8579' }));
     // The roller door stays shut to walkers.
     const door = box(0.12, 1.1, s.truckDoorZ1 - s.truckDoorZ0, '#8C8579');
     door.position.set(s.x1 + 0.15, 1.65, (s.truckDoorZ0 + s.truckDoorZ1) / 2);
@@ -681,6 +693,8 @@ export class Market {
     this.staff = this.staff.filter((s) => !s.gone);
     this.updateCheckouts(dt, p);
     this.truck.update(dt);
+    const people = [...(p ? [p] : []), ...this.shoppers.map((s) => s.pos), ...this.staff.map((s) => s.pos)];
+    for (const d of this.doors) d.update(dt, d.sense(people), this.w.reduced);
     if (p) this.updateTiles(dt, p);
     this.persistT -= dt;
     if (this.persistT <= 0) {

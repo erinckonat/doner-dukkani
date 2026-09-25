@@ -27,7 +27,8 @@ export class TrashBin {
 export type DeskKind = 'office' | 'hr';
 
 /** Walls, door gap and furniture of the boss's room, in shop-local metres. */
-const ROOM = { x0: -10, x1: -4.9, z0: 4.6, z1: 9, doorX0: -6.3 };
+export const OFFICE_ROOM = { x0: -10, x1: -4.9, z0: 4.6, z1: 9, doorX0: -6.3 };
+const ROOM = OFFICE_ROOM;
 const LEATHER = '#6B3A22';
 
 /**

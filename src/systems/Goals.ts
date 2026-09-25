@@ -1,5 +1,6 @@
 import { SHOPS, type ShopId } from '../config/balance';
 import { HOTEL_UNLOCKS, UPPER_FLOOR } from '../config/hotel';
+import { MALL_FLOORS, MALL_UNITS } from '../config/mall';
 import { MARKET_UNLOCKS } from '../config/market';
 import { freshStats, type SaveData, type ShopState } from '../core/Save';
 import { fmtMoney } from '../ui/Hud';
@@ -52,6 +53,14 @@ export const GOALS: GoalDef[] = [
   { id: 'floor2', text: 'Otelin üst katını aç', target: 1, progress: (d) => has(d.hotel, UPPER_FLOOR.id) },
   { id: 'hotelDone', text: 'Oteli %100 tamamla', target: hotelIds.length, progress: (d) => hotelIds.filter((id) => d.hotel?.unlocked.includes(id)).length },
   { id: 'managers4', text: 'Dört işletmenin hepsine müdür al', target: 4, progress: (d) => managers(d) },
+  // The mall, after the hotel.
+  { id: 'mall', text: 'Otelin yanındaki arsaya AVM kur', target: 1, progress: (d) => (d.mall ? 1 : 0) },
+  { id: 'mallRent', text: 'AVM yönetim ofisindeki kasadan ilk kirayı topla', target: 1, progress: (d) => ((d.mall?.collected ?? 0) > 0 ? 1 : 0) },
+  { id: 'mallShops', text: 'AVM\'de 6 mağaza aç', target: 6, progress: (d) => MALL_UNITS.filter((u) => d.mall?.unlocked.includes(u.id)).length },
+  { id: 'mallFloor1', text: 'AVM\'nin 1. katını aç', target: 1, progress: (d) => has(d.mall, 'mfloor1') },
+  { id: 'mallFloor2', text: 'AVM\'nin 2. katını aç: yemek katı ve sinema', target: 1, progress: (d) => has(d.mall, 'mfloor2') },
+  { id: 'mallSeans', text: 'Sinemaksimum\'da ilk seansı başlat', target: 1, progress: (d) => Math.min(1, d.mall?.seanses ?? 0) },
+  { id: 'mallDone', text: 'AVM\'yi %100 tamamla', target: MALL_UNITS.length + MALL_FLOORS.length, progress: (d) => [...MALL_UNITS, ...MALL_FLOORS].filter((u) => d.mall?.unlocked.includes(u.id)).length },
 ];
 
 /** After the list, the street keeps going: each goal doubles the lifetime takings. */

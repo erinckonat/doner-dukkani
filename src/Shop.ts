@@ -16,7 +16,8 @@ import type { Game } from './Game';
 import { Counter, MAIN_COUNTER, WINDOW_COUNTER, type QueueMember } from './stations/Counter';
 import { MenuStation } from './stations/MenuStation';
 import { Producer } from './stations/Producer';
-import { Desk, TrashBin, type DeskKind } from './stations/Props';
+import { Door } from './stations/Door';
+import { Desk, OFFICE_ROOM, TrashBin, type DeskKind } from './stations/Props';
 import { Table, type Seat } from './stations/Table';
 import { UnlockTile, type TileDef } from './stations/UnlockTile';
 import { transfer, type ItemKind, type ItemStack } from './systems/ItemStack';
@@ -104,6 +105,8 @@ export class Shop {
   hr: Desk | null = null;
   staff: Staff[] = [];
   customers: Customer[] = [];
+  /** The front entrance, and the boss's office once there is one. */
+  doors: Door[] = [];
   couriers: Courier[] = [];
   cars: Car[] = [];
   tiles: UnlockTile[] = [];
@@ -132,6 +135,7 @@ export class Shop {
     w.scene.add(this.root);
 
     this.level = buildShopBuilding(this.root, id, this.def.theme);
+    this.doors.push(this.level.door);
     this.counters.push(new Counter(MAIN_COUNTER, this.products, this.def.theme.stripe, this.root, this.flyer));
     for (const p of this.def.producers) if (!p.unlock) this.addProducer(p.slot, p.product);
     this.bin = new TrashBin(BIN_POS, this.root);
@@ -173,6 +177,7 @@ export class Shop {
       case 'price': return priceOf(this.def.main, lvl);
       case 'sSpeed': return BAL.staff.speed + BAL.staff.speedStep * lvl;
       case 'sCap': return BAL.staff.cap + BAL.staff.capStep * lvl;
+      default: return 0; // the mall's upgrades don't apply to a shop
     }
   }
 
@@ -320,6 +325,11 @@ export class Shop {
       case 'office':
         this.office = new Desk(OFFICE_POS, this.root, 'office');
         obj = this.office.group;
+        // A wooden door in the office's doorway, opening inwards.
+        this.doors.push(new Door(this.root, {
+          x: (OFFICE_ROOM.doorX0 + OFFICE_ROOM.x1) / 2, z: OFFICE_ROOM.z0, width: OFFICE_ROOM.x1 - OFFICE_ROOM.doorX0 - 0.1,
+          height: 1.2, style: 'swing', into: 1, color: '#8A5A3A',
+        }));
         break;
       case 'hr':
         this.hr = new Desk(HR_POS, this.root, 'hr');
@@ -712,6 +722,16 @@ export class Shop {
     this.updateCustomers(dt);
     this.updateOnline(dt);
     this.manage(dt);
+    this.updateDoors(dt, playerHere ? p : null);
     if (playerHere) this.updateTiles(dt, p);
+  }
+
+  /** Doors open for anyone walking up: the player, customers, couriers, staff. */
+  private updateDoors(dt: number, player: THREE.Vector3 | null) {
+    const people = [
+      ...(player ? [player] : []),
+      ...this.customers.map((c) => c.pos), ...this.staff.map((s) => s.pos), ...this.couriers.map((c) => c.pos),
+    ];
+    for (const d of this.doors) d.update(dt, d.sense(people), this.w.reduced);
   }
 }

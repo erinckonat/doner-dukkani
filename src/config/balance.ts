@@ -50,7 +50,7 @@ export const BAL = {
   idleRate: 0.35,
 };
 
-export type UpgradeId = 'pSpeed' | 'pCap' | 'price' | 'sSpeed' | 'sCap';
+export type UpgradeId = 'pSpeed' | 'pCap' | 'price' | 'sSpeed' | 'sCap' | 'ads' | 'parking' | 'rent';
 
 export interface UpgradeDef { id: UpgradeId; baseCost: number; growth: number; max: number }
 
@@ -60,7 +60,13 @@ export const UPGRADES: UpgradeDef[] = [
   { id: 'price', baseCost: 10000, growth: 2.0, max: 5 },
   { id: 'sSpeed', baseCost: 15000, growth: 1.9, max: 5 },
   { id: 'sCap', baseCost: 20000, growth: 1.9, max: 5 },
+  // The shopping mall's own: advertising brings visitors, parking lets more stay, rent reviews.
+  { id: 'ads', baseCost: 600000, growth: 1.9, max: 5 },
+  { id: 'parking', baseCost: 900000, growth: 1.9, max: 5 },
+  { id: 'rent', baseCost: 1200000, growth: 2.0, max: 5 },
 ];
+
+export const MALL_UPGRADES: UpgradeId[] = ['ads', 'parking', 'rent'];
 
 export const upgradeCost = (d: UpgradeDef, level: number) =>
   Math.round((d.baseCost * Math.pow(d.growth, level)) / 500) * 500;
@@ -109,7 +115,7 @@ export const priceOf = (kind: ProductKind, priceLevel: number) =>
 // ---------- shops ----------
 
 export type ShopId = 'doner' | 'burger';
-export type StaffRole = 'manager' | 'cashier' | 'carrier' | 'cleaner' | 'stocker' | 'receptionist' | 'housekeeper';
+export type StaffRole = 'manager' | 'cashier' | 'carrier' | 'cleaner' | 'stocker' | 'receptionist' | 'housekeeper' | 'accountant' | 'usher';
 export type UnlockKind = 'table' | 'producer' | 'office' | 'hr' | 'window' | 'menu';
 
 export interface UnlockDef {
@@ -122,7 +128,7 @@ export interface UnlockDef {
 }
 
 export type HireId = 'manager' | 'cashier' | 'carrier' | 'cleaner' | 'cashierWindow' | 'stocker' | 'checkout2' | 'checkout3'
-  | 'receptionist' | 'housekeeper';
+  | 'receptionist' | 'housekeeper' | 'accountant' | 'mallCleaner' | 'usher';
 
 export interface HireDef {
   id: HireId;

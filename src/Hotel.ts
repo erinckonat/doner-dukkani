@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Door } from './stations/Door';
 import { BAL, hireCost, hireMax, UPGRADES, upgradeCost, type HireDef, type HireId, type UpgradeId } from './config/balance';
 import { buffAmount } from './config/city';
 import {
@@ -114,6 +115,7 @@ export class Hotel {
   rooms: Room[] = [];
   staff: HotelStaff[] = [];
   guests: Guest[] = [];
+  doors: Door[] = [];
   queue: Guest[] = [];
   tiles: UnlockTile[] = [];
   hr: Desk | null = null;
@@ -210,6 +212,15 @@ export class Hotel {
     return m;
   }
 
+  /** Doors open for whoever is near them on their own floor: the player, guests, staff. */
+  private updateDoors(dt: number, p: THREE.Vector3 | null) {
+    const people: { x: number; z: number }[][] = [[], []];
+    if (p) people[this.playerFloor].push(p);
+    for (const g of this.guests) people[g.floor]?.push(g.pos);
+    for (const s of this.staff) people[s.floor]?.push(s.pos);
+    for (const d of this.doors) d.update(dt, d.sense(people[d.floor]), this.w.reduced);
+  }
+
   /** Room shells on one floor: carpets, corridor walls with doors, numbers. */
   private buildRoomShells(floor: number) {
     const g = this.group(floor);
@@ -221,6 +232,11 @@ export class Hotel {
       g.add(at(plane(d.x1 - d.x0 - 0.2, d.z1 - d.z0 - 0.2, carpet, 0), (d.x0 + d.x1) / 2, 0.003, (d.z0 + d.z1) / 2));
       this.wall({ x0: d.x0, x1: d.doorX0, z0: d.wallZ - 0.08, z1: d.wallZ + 0.08 }, RH, '#E9E1D2', floor);
       this.wall({ x0: d.doorX1, x1: d.x1, z0: d.wallZ - 0.08, z1: d.wallZ + 0.08 }, RH, '#E9E1D2', floor);
+      // A walnut door, opening into the room (back rooms lie to -z of the corridor, suites to +z).
+      this.doors.push(new Door(g, {
+        x: (d.doorX0 + d.doorX1) / 2, z: d.wallZ, width: d.doorX1 - d.doorX0, height: RH,
+        style: 'swing', into: d.suite ? 1 : -1, color: d.suite ? '#6B3A4A' : '#7A4E34', floor,
+      }));
       const num = canvasTexture(128, 64, (ctx) => {
         ctx.fillStyle = GOLD;
         ctx.font = '800 44px "Baloo 2", sans-serif';
@@ -376,6 +392,8 @@ export class Hotel {
     this.wall({ x0: W, x1: W + T, z0: -D, z1: D }, 1.3, '#E4DCCB');
     this.wall({ x0: -W - T, x1: HOTEL.door.x0, z0: D, z1: D + T }, 0.55, '#E4DCCB');
     this.wall({ x0: HOTEL.door.x1, x1: W + T, z0: D, z1: D + T }, 0.55, '#E4DCCB');
+    // Gold-framed glass doors under the canopy.
+    this.doors.push(new Door(this.root, { x: (HOTEL.door.x0 + HOTEL.door.x1) / 2, z: D + T / 2, width: HOTEL.door.x1 - HOTEL.door.x0, height: 2.5, style: 'slide', color: GOLD }));
 
     // Room walls: every room's shell stands from the start; locked ones are empty.
     this.buildRoomShells(0);
@@ -956,6 +974,7 @@ export class Hotel {
     this.staff = this.staff.filter((s) => !s.gone);
     this.updateReception(dt, p);
     this.updateRooms(dt, p);
+    this.updateDoors(dt, p);
     this.manage(dt);
     this.updateView(here);
     if (p) this.updateTiles(dt, p);

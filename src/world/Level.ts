@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Door } from '../stations/Door';
 import type { Rect } from '../core/Nav';
 import type { ShopId, ShopTheme } from '../config/balance';
 import { TR } from '../ui/strings.tr';
@@ -8,6 +9,8 @@ import { CITY, DOOR, DRIVE_ROAD, ROOM } from './layout';
 export interface LevelRefs {
   rects: Rect[];
   windowWall: THREE.Object3D;
+  /** Sliding glass doors in the front entrance. */
+  door: Door;
 }
 
 const WALL = 0.3;
@@ -97,6 +100,9 @@ export function buildShopBuilding(scene: THREE.Object3D, shop: ShopId, theme: Sh
   scene.add(windowWall);
   rects.push({ x0: -10.4, x1: -9.6, z0: 2, z1: 4 });
 
+  // Automatic glass doors in the entrance, framed in the shop's colour.
+  const door = new Door(scene, { x: (DOOR.x0 + DOOR.x1) / 2, z: maxZ + WALL / 2, width: DOOR.x1 - DOOR.x0, height: 1.5, style: 'slide', color: theme.stripe });
+
   // Door mat.
   scene.add(at(plane(3, 1.2, theme.stripe, 0.006), 0, 0.006, maxZ - 0.7));
 
@@ -131,5 +137,5 @@ export function buildShopBuilding(scene: THREE.Object3D, shop: ShopId, theme: Sh
     scene.add(at(makePlant(), x, 0, z));
     rects.push({ x0: x - 0.3, x1: x + 0.3, z0: z - 0.3, z1: z + 0.3 });
   }
-  return { rects, windowWall };
+  return { rects, windowWall, door };
 }

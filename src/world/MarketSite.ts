@@ -91,7 +91,8 @@ export function buildMarketSite(scene: THREE.Scene): MarketSite {
   // Behind the shop row and beside the market: out of bounds.
   rects.push(
     { x0: CITY.minX - 10, x1: OX - MARKET.halfW - 0.3, z0: CITY.minZ - 10, z1: top + 4.2 },
-    { x0: OX + MARKET.halfW + 0.3, x1: CITY.maxX + 5, z0: CITY.minZ - 10, z1: top + 0.3 },
+    // (Stops short of the mall's plot, which keeps its own bounds.)
+    { x0: OX + MARKET.halfW + 0.3, x1: 121.5, z0: CITY.minZ - 10, z1: top + 0.3 },
     { x0: OX - MARKET.halfW - 0.3, x1: OX + MARKET.stock.x0 - 0.3, z0: CITY.minZ - 10, z1: OZ - MARKET.halfD - 0.3 },
     { x0: OX - MARKET.halfW - 0.3, x1: CITY.maxX + 5, z0: CITY.minZ - 10, z1: OZ + MARKET.stock.z0 - 0.3 },
   );

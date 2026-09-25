@@ -1,6 +1,7 @@
-import { hireCost, hireMax, HR_UPGRADES, MACHINE_PRICE, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type ProductKind, type ShopId, type UpgradeId } from '../config/balance';
+import { hireCost, hireMax, HR_UPGRADES, MACHINE_PRICE, MALL_UPGRADES, OFFICE_UPGRADES, UPGRADES, upgradeCost, type HireDef, type HireId, type ProductKind, type ShopId, type UpgradeId } from '../config/balance';
 import type { Game } from '../Game';
 import type { Hotel } from '../Hotel';
+import type { Mall } from '../Mall';
 import type { Market } from '../Market';
 import type { Shop } from '../Shop';
 import type { DeskKind } from '../stations/Props';
@@ -16,7 +17,7 @@ export class UpgradePanel {
   private refreshT = 0;
   private kind: DeskKind = 'office';
   /** The shop (or the market) whose desk the player is at. */
-  private s: Shop | Market | Hotel | null = null;
+  private s: Shop | Market | Hotel | Mall | null = null;
   /** Hire row whose "Çıkar" was pressed once and now asks for confirmation. */
   private confirmFire: HireId | null = null;
   private confirmTimer = 0;
@@ -36,13 +37,13 @@ export class UpgradePanel {
     });
   }
 
-  open(kind: DeskKind, shop: Shop | Market | Hotel) {
+  open(kind: DeskKind, shop: Shop | Market | Hotel | Mall) {
     if (this.isOpen && this.kind === kind && this.s === shop) return;
     this.kind = kind;
     this.s = shop;
     this.isOpen = true;
     this.title.textContent = kind === 'office' ? TR.panelTitle : TR.hrTitle;
-    this.sub.textContent = kind === 'office' ? TR.panelSub : shop.id === 'market' ? TR.market.hrSub : shop.id === 'hotel' ? TR.hotel.hrSub : TR.hrSub;
+    this.sub.textContent = kind === 'office' ? TR.panelSub : shop.id === 'market' ? TR.market.hrSub : shop.id === 'hotel' ? TR.hotel.hrSub : shop.id === 'mall' ? TR.mall.hrSub : TR.hrSub;
     this.render();
     this.wrap.hidden = false;
   }
@@ -68,6 +69,7 @@ export class UpgradePanel {
   private valueText(id: UpgradeId, lvl: number) {
     const v = this.s!.upgradeValue(id, lvl);
     if (id === 'price') return fmtMoney(v);
+    if (id === 'ads' || id === 'rent') return `+%${Math.round((v - 1) * 100)} ${TR.upgrade[id].unit}`;
     return `${Number.isInteger(v) ? v : v.toFixed(1)} ${TR.upgrade[id].unit}`;
   }
 
@@ -94,7 +96,7 @@ export class UpgradePanel {
     const locked = !!h.requires && !this.s!.ss.unlocked.includes(h.requires);
     const full = n >= max;
     const cost = hireCost(h, n);
-    const label = locked ? (h.requires === 'window' ? TR.needsWindow : TR.market.needsCheckout) : full ? TR.hired : `${TR.hireBtn}<small>${fmtMoney(cost)}</small>`;
+    const label = locked ? (TR.requires[h.requires!] ?? TR.market.needsCheckout) : full ? TR.hired : `${TR.hireBtn}<small>${fmtMoney(cost)}</small>`;
     const disabled = locked || full || this.g.money < cost;
     return `<li class="upg hire">
       <div class="upg-info">
@@ -136,7 +138,7 @@ export class UpgradePanel {
         <button class="buy" data-kind="machine" data-id="${kind}" ${full || this.g.money < cost ? 'disabled' : ''}>${full ? TR.noRoom : fmtMoney(cost)}</button>
       </li>`;
     }).join('');
-    return `<li class="section">${TR.kitchenSection(s.producers.length, total)}</li>${rows}`;
+    return `<li class="upg section">${TR.kitchenSection(s.producers.length, total)}</li>${rows}`;
   }
 
   render() {
@@ -144,7 +146,8 @@ export class UpgradePanel {
     const html = this.kind === 'office'
       ? OFFICE_UPGRADES.map((id) => this.upgradeRow(id)).join('') + this.machineRows(this.s as Shop)
       : this.s.def.hires.map((h) => this.hireRow(h)).join('')
-        + `<li class="section">${TR.staffSection}</li>`
+        + (this.s.id === 'mall' ? `<li class="upg section">${TR.mallSection}</li>` + MALL_UPGRADES.map((id) => this.upgradeRow(id)).join('') : '')
+        + `<li class="upg section">${TR.staffSection}</li>`
         + HR_UPGRADES.map((id) => this.upgradeRow(id)).join('');
     if (html === this.list.innerHTML) return;
     const focused = (document.activeElement as HTMLElement | null)?.dataset?.id;
